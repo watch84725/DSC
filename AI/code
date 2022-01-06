@@ -1,0 +1,1068 @@
+########################################################### 中分類上線時程 #########################################################
+
+#   2020-03-05 00:00:00         FC32 茶類                           FC34 香辛料
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+#   2020-04-08 00:00:00         FC33  藥食兩用                      FC11 生鮮冷藏冷凍蔬菜	        	FC21  生鮮冷藏冷凍水果
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   2020-04-15 00:00:00         FB02,FB12,FB92 冷凍水產品           FC13 乾蔬菜			                FC40  乾果實
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   2020-05-06 12:00:00         FD14  調味醬
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   2020-06-10 12:00:00	        FC39  花生製品                      FA94  蛋製品                    FD03  糖蜜
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   2020-09-15 12:00:00         FE01  食品器具
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   2020-09-22 12:00:00         FA99	其他已調製肉製品              FA95	蜂產品                    FC12	暫時保藏蔬菜
+#                               FA09	其他已調製牛肉製品            FB93	其他水產品罐頭            FA13	豬肉罐頭
+#                               FD23	天然色素                      FB13	甲殼類罐頭                FA91	其他生鮮冷藏冷凍肉品
+#                               FA03	牛肉罐頭                      FA23	家禽罐頭                  FD21	殘渣物
+#                               FA92	其他生鮮冷藏冷凍肉品雜碎      FA29	其他已調製家禽肉製品      FC99	其他植物類
+#                               FA22	生鮮冷藏冷凍家禽雜碎          FA32	生鮮冷藏冷凍羊雜碎        FA93	其他肉品罐頭
+#                               FC22	暫時保藏水果                  FD22	明膠及改質澱粉產品        FD10	調製蔬果
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   2020-09-29 12:00:00         FD11	糖漬蔬果                      FC23	乾水果
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   2021-01-12 12:00:00         FA01,FA02	生鮮冷藏冷凍牛肉、雜碎    FA11	生鮮冷藏冷凍豬肉          FA12	生鮮冷藏冷凍豬雜碎
+#                               FA19	其他已調製豬肉製品            FA21	生鮮冷藏冷凍家禽肉        FA31	生鮮冷藏冷凍羊肉
+#                               FB01	活生鮮冷藏魚產品              FB03	魚罐頭                    FB09	其他已調製魚產品
+#                               FB11	活生鮮冷藏甲殼類產品          FB19	其他已調製甲殼類製品      FB91	其他活生鮮冷藏水產品
+#                               FB99	其他已調製水產品              FC01	食用花卉                  FC31	咖啡類
+#                               FC35	米                            FC36	米製品                    FC37	穀物雜糧
+#                               FC38,FD05	穀物雜糧製品、穀類調製品  FC41	海草類                    FC42	植物膠
+#                               FD01	乳製品                        FD02	食用油脂                  FD04	糖果、巧克力
+#                               FD06	麵製品                        FD07	其他穀類製品              FD08	餅乾
+#                               FD09	蔬果罐頭                      FD12	蔬果汁                    FD13	酵毋
+#                               FD15	水及冰                        FD16	飲料                      FD17	蛋白產品
+#                               FD18	鹽                            FD19	嬰幼兒食品                FD20	病人用及特殊營養食品
+#                               FD24	食品添加物                    FD99	其他調製食品
+
+###################################################################################################################################
+
+# # 先移除現有的所有Libraries
+# # sessionInfo()
+# rm(list = ls())
+# tryCatch(
+#   invisible(lapply(paste0('package:', names(sessionInfo()$otherPkgs)), detach, character.only = TRUE, unload = TRUE))
+#   ,warning = function(war) {print(war); }
+#   ,error = function(err) {print("沒有Packages 需要移除") }
+# )
+# 
+# # 設定時區
+# Sys.setenv(tz = "Asia/Taipei")
+ 
+library(RODBC); library(magrittr); library(stringr); library(scales); library(openxlsx); 
+library(plyr); library(dplyr); library(tidyr); library(tibble); library(lubridate); library(sqldf)
+# library(DSC)
+
+
+
+##################################################################################################################################
+############################################################## 設置 ##############################################################
+######################################　【！請先到SQL設定：時間分組、停機時間、上線中分類】 ######################################
+##################################################################################################################################
+args <- commandArgs(trailingOnly = TRUE)
+
+
+# 中分類順序
+dtOrder <- list(
+  # ML中分類
+  c('FC32','FC34','FC11','FC21','FC33','FC13','FC40','FB02, FB12, FB92','FD14','FC39','FA94','FD03','FE01','FD10','FD11','FC23',
+    'FA01,FA02','FA11','FA12','FB01','FB09','FB11','FB19','FB91','FB99','FC37','FC38,FD05','FC41','FC42','FD02','FD07','FD08','FD09','FD13','FD99'
+  ),
+  # RAM中分類
+  c('FA99','FA95','FC12','FA09','FB93','FA13','FD23','FB13','FA91','FA03','FA23','FD21','FA92','FA29','FC99',
+    'FA22','FA32','FA93','FC22','FD22',
+    'FA19','FA21','FA31','FB03','FC01','FC31','FC35','FC36','FD01','FD04','FD06','FD12','FD15','FD16','FD17','FD18','FD19','FD20','FD24'
+  ))
+
+
+# SQL Server 名稱
+conn <- odbcConnect(args[which(names(args) == 'odbcname')])
+
+# 輸出路徑
+outputWD <- args[which(names(args) == 'wd')]    # 檔案輸出路徑
+sqlWD <- args[which(names(args) == 'sqlwd')]       # SQL 檔案路徑
+setwd(outputWD)
+# dirname(rstudioapi::getSourceEditorContext()$path)
+
+# 工作表名稱
+sheetName <- c('表1、一般加強逐批監視',
+               '表2、一般加強AI', '表2-1、一般加強ML', '表2-2、一般加強RAM', '表2-3、一般加強每日',
+               '表3、一般AI', '表3-1、一般ML', '表3-2、一般RAM','表3-3、一般每日',
+               '表4、加強AI', '表4-1、加強ML', '表4-2、加強RAM','表4-3、加強每日')
+
+
+# 四張報表 篩選條件
+dFilter <- list(c('一般抽中批', '一般未抽中批', '加強抽中批', '加強未抽中批', '逐批查驗', '一般監視'),
+                c('一般抽中批', '一般未抽中批', '加強抽中批', '加強未抽中批'),
+                c('一般抽中批', '一般未抽中批'),
+                c('加強抽中批', '加強未抽中批'))
+
+
+
+# 是否產表
+setBigSheets<- args[which(names(args) == 'bigSheets')] %>% as.logical()
+setDivisionSheets<- args[which(names(args) == 'divisionSheets')] %>% as.logical()
+
+
+
+
+
+
+##################################################################################################################################
+############################################################## 公式 ############################################################## 
+##################################################################################################################################
+
+
+################################################
+################# SQL 資料撈取 ################# 
+################################################
+GetSql <- function(sqlWD, defTime, setBeginPeriod){
+  cat('SQL資料撈取．．．')
+  oldTime <- Sys.time()
+  # SQL Lines
+  SqlLines <- readLines(sqlWD)
+  SqlLines[which(str_detect(SqlLines, "擷取"))] <- paste0("DECLARE @現在時間 DATETIME = '", defTime, "'")
+  SqlLines[which(str_detect(SqlLines, "設定開始時間分組"))] <- paste0("SET @起始分組 = ", setBeginPeriod)
+  
+  # SQL Data
+  SqlData0 <- sqlQuery(conn, paste(SqlLines, collapse='\n'))
+  SqlData0$受理日期 <- as_date(SqlData0$受理日期時間, tz = "Asia/Taipei")
+  # Foundation
+  Foundation0 <- sqlQuery(conn, "select * from #Foundation")
+  # 耗時表
+  ElapsedTime <- sqlQuery(conn, "select * from #報表各段SQL耗時")
+  # 停機表
+  Shutdown <- sqlQuery(conn, "select * from [食藥巨量分析表單整理].DBO.[BPI中分類停機時間]")
+  
+  odbcClose(conn)
+  
+  newTime <- Sys.time()
+  runTime <- round(difftime(newTime, oldTime, units = 'secs'), 4)
+  cat(paste0('----------------共耗時', runTime, '秒'),'\n')
+  
+  
+  
+  
+  cat('判斷停機同期報單．．．')
+  oldTime <- Sys.time()
+  
+  # 當時正好遭遇停機的簽審
+  ShutdownAPPL <- sqldf::sqldf("SELECT DISTINCT a.簽審核准許可文件編號, a.受理日期時間 FROM SqlData0 AS a
+                        INNER JOIN Shutdown AS b ON a.原中分類 = b.中分類代碼 AND a.受理日期時間 BETWEEN b.開始日期時間 AND b.結束日期時間")
+  
+  # 本年度停機時間，要把過往同期的簽審加註
+  ShutdownPeriod <- Shutdown %>%
+    filter(year(Shutdown$開始日期時間) == year(defTime)) # 今年的停機時間
+  
+  minusP <- seq(0, by = -1, length.out = length(min(Foundation0$時間分組):max(Foundation0$時間分組)) ) # 有幾個同期
+  
+  ShutdownPeriodSame <- NULL # 同期內的停機時間表
+  for (i in minusP) {
+    ShutdownPeriod_temp <- ShutdownPeriod
+    ShutdownPeriod_temp$開始日期時間 <- ShutdownPeriod_temp$開始日期時間 %m+% years(i)
+    ShutdownPeriod_temp$結束日期時間 <- ShutdownPeriod_temp$結束日期時間 %m+% years(i)
+    
+    ShutdownPeriodSame <- rbind(ShutdownPeriodSame, ShutdownPeriod_temp)
+    rm(ShutdownPeriod_temp)
+  }
+  
+  ShutdownAPPLSame <- sqldf::sqldf("SELECT DISTINCT a.簽審核准許可文件編號, a.受理日期時間 FROM SqlData0 AS a
+                        INNER JOIN ShutdownPeriodSame AS b ON a.原中分類 = b.中分類代碼 AND a.受理日期時間 BETWEEN b.開始日期時間 AND b.結束日期時間")
+  ShutdownAPPLSame$停機同期 <- 'Y'
+  
+  # 排除當時停機
+  SqlData <- SqlData0 %>%
+    filter(!簽審核准許可文件編號 %in% ShutdownAPPL$簽審核准許可文件編號)
+  # 今年同期停機加註
+  SqlData <- merge(SqlData, ShutdownAPPLSame, by = intersect(names(SqlData), names(ShutdownAPPLSame)), all.x = TRUE)
+  SqlData$停機同期 <- ifelse(is.na(SqlData$停機同期), 'N', 'Y')
+  
+  newTime <- Sys.time()
+  runTime <- round(difftime(newTime, oldTime, units = 'secs'), 4)
+  cat(paste0('----------------共耗時', runTime, '秒'),'\n')
+  
+  
+  
+  
+  cat('判斷資料是否同期．．．')
+  oldTime <- Sys.time()
+  # 判斷資料是否同期
+  maxPeriod <- SqlData %>%
+    subset(select = c('產品中分類', '時間分組')) %>%
+    unique() %>%
+    group_by(產品中分類) %>%
+    dplyr::summarize(中分類最大時間分組=max(時間分組))
+  
+  SqlData <- plyr::join(SqlData, maxPeriod, by = "產品中分類")
+  # 將受理日期、下載日期轉成2020年，判斷是否位於2020的上線日期與下載日期中間
+  SqlData$是否同期 <- ifelse( ((SqlData$受理日期時間 %m-% years(SqlData$時間分組)) >= SqlData$上線日期) & 
+                            ((SqlData$受理日期時間 %m-% years(SqlData$時間分組)) <= (SqlData$下載時間 %m-% years(SqlData$中分類最大時間分組))),
+                          TRUE, FALSE)
+  newTime <- Sys.time()
+  runTime <- round(difftime(newTime, oldTime, units = 'secs'), 4)
+  cat(paste0('----------------共耗時', runTime, '秒'),'\n')
+  
+  
+  
+  SqlData <<- SqlData
+  Foundation0 <<- Foundation0
+  ElapsedTime <<- ElapsedTime
+  maxPeriod <<- maxPeriod
+}
+
+
+
+
+################################################
+################# 各個欄位計算 ################# 
+################################################
+Report <- function(df, time){
+  if (time == 'year') {
+    df %>%
+      subset(select = c('簽審核准許可文件編號', '產品中分類', '產品中分類名稱', '時間分組', '是否同期')) %>%
+      unique() %>%
+      group_by(產品中分類, 產品中分類名稱, 時間分組, 是否同期) %>%
+      dplyr::summarize(name=n())
+  }else if (time == 'daily') {
+    df %>%
+      subset(select = c('簽審核准許可文件編號', '產品中分類', '產品中分類名稱', '受理日期')) %>%
+      unique() %>%
+      group_by(產品中分類, 產品中分類名稱, 受理日期) %>%
+      dplyr::summarize(name=n())
+  }
+}
+
+
+
+AllVars <- function(data, sheets, MLRAM, time, mode){
+  ########## 所有需要的欄位
+  # sheet：1, 2, 3 ....，為根據dFilter給定之數值 
+  # MLRAM：1為ML抽之中分類，2為RAM抽之中分類
+  # time：c('year', 'daily')
+  
+  # 篩選「抽批條件」及「ML或RAM」
+  if (time == 'year') {
+    RawData <- data %>%
+      filter(應檢驗方式 %in% unlist(dFilter[sheets])) %>%
+      filter(產品中分類 %in% unlist(dtOrder[MLRAM])) %>%
+      filter(!(中分類最大時間分組 == 1 & 是否同期 == '同期' & 停機同期 == 'Y') &  # 有進行到BPI第二年的中分類，在同期部分排掉停機
+               !(中分類最大時間分組 == 0 & 是否同期 == '整年' & 停機同期 == 'Y')  # 尚未進行到BPI第二年的中分類，在整年部分排掉停機
+      )
+  }else if (time == 'daily') {
+    RawData <- data %>%
+      filter(應檢驗方式 %in% unlist(dFilter[sheets])) %>%
+      filter(產品中分類 %in% unlist(dtOrder[MLRAM])) %>%
+      filter(時間分組 >= 0)
+  }
+  
+  
+  # list to store all data.frames
+  out <- list()
+  
+  ## 報驗批數
+  out$A1 <- RawData %>% Report(time); colnames(out$A1)[ncol(out$A1)] <- '報驗批數'
+  ## 抽驗批數
+  A2original <- RawData %>%
+    filter(!str_detect(應檢驗方式修, '未抽中批|排除'))
+  out$A2 <- A2original %>% Report(time); colnames(out$A2)[ncol(out$A2)] <- '抽驗批數'
+  ## 檢出批數
+  out$A3 <- A2original %>% filter(!is.na(批檢驗結果名稱修)) %>% Report(time); colnames(out$A3)[ncol(out$A3)] <- '檢出批數'
+  ## 未檢出批數
+  out$A4 <- A2original %>% filter(is.na(批檢驗結果名稱修)) %>% Report(time); colnames(out$A4)[ncol(out$A4)] <- '未檢出批數'
+  ## 檢驗不合格批數
+  out$A5 <- A2original %>% filter(批檢驗結果名稱修 == '不合格') %>% Report(time); colnames(out$A5)[ncol(out$A5)] <- '檢驗不合格批數'
+  
+  # AI抽驗批數
+  if (mode == 'original') {
+    A6original <- A2original %>% 
+      filter(建議與否 == '建議', 時間分組 >= 0)
+  }else if (mode == 'division') {
+    A6original <- A2original %>% 
+      filter(建議與否 == '建議')
+  }
+  out$A6 <- A6original %>% Report(time); colnames(out$A6)[ncol(out$A6)] <- 'AI抽驗批數'
+  ## AI檢出批數
+  out$A7 <- A6original %>% filter(!is.na(批檢驗結果名稱修)) %>% Report(time); colnames(out$A7)[ncol(out$A7)] <- 'AI檢出批數'
+  ## AI未檢出批數
+  out$A8 <- A6original %>% filter(is.na(批檢驗結果名稱修)) %>% Report(time); colnames(out$A8)[ncol(out$A8)] <- 'AI未檢出批數'
+  ## 檢驗不合格批數
+  out$A9 <- A6original %>% filter(批檢驗結果名稱修 == '不合格') %>% Report(time); colnames(out$A9)[ncol(out$A9)] <- 'AI檢驗不合格批數'
+  
+  
+  ## RAM報驗批數
+  C1original <- RawData %>% 
+    subset(受理日期時間 >= as.POSIXct('2020-06-01 11:00:00', tz = "Asia/Taipei")) # 隨機啟用後的報驗批數
+  out$C1 <- C1original %>% Report(time); colnames(out$C1)[ncol(out$C1)] <- 'RAM報驗批數'
+  
+  if (MLRAM == 1) {
+    ## ML抽驗批數
+    B1original <- A6original %>%
+      filter(閾值以下隨機抽 != '建議')
+    out$B1 <- B1original %>% Report(time); colnames(out$B1)[ncol(out$B1)] <- 'ML抽驗批數'
+    ## ML檢出批數
+    out$B2 <- B1original %>% filter(!is.na(批檢驗結果名稱修)) %>% Report(time); colnames(out$B2)[ncol(out$B2)] <- 'ML檢出批數'
+    ## ML未檢出批數
+    out$B3 <- B1original %>% filter(is.na(批檢驗結果名稱修)) %>% Report(time); colnames(out$B3)[ncol(out$B3)] <- 'ML未檢出批數'
+    ## ML檢驗不合格批數
+    out$B4 <- B1original %>% filter((批檢驗結果名稱修 == '不合格')) %>% Report(time); colnames(out$B4)[ncol(out$B4)] <- 'ML檢驗不合格批數'
+    
+    ####   MLRAM = 1時，即採用ML抽之中分類，需要探討閾值以下隨機抽
+    ## 抽驗批數
+    if (mode == 'original') {
+      C2original <- C1original %>%
+        filter(!str_detect(應檢驗方式修, '未抽中批|排除')) %>% 
+        filter(建議與否 == '建議', 時間分組 >= 0) %>%
+        filter(閾值以下隨機抽 == '建議')
+    }else if (mode == 'division') {
+      C2original <- C1original %>%
+        filter(!str_detect(應檢驗方式修, '未抽中批|排除')) %>% 
+        filter(建議與否 == '建議') %>%
+        filter(閾值以下隨機抽 == '建議')
+    }
+    
+  }else{
+    ####   MLRAM = 2時，即採用RAM抽之中分類，其AI建議抽驗就是RAM抽驗
+    if (mode == 'original') {
+      C2original <- C1original %>%
+        filter(!str_detect(應檢驗方式修, '未抽中批|排除')) %>% 
+        filter(建議與否 == '建議', 時間分組 >= 0) 
+    }else if (mode == 'division') {
+      C2original <- C1original %>%
+        filter(!str_detect(應檢驗方式修, '未抽中批|排除')) %>% 
+        filter(建議與否 == '建議') 
+    }
+    
+  }
+  
+  ## RAM抽驗批數
+  out$C2 <- C2original %>% Report(time); colnames(out$C2)[ncol(out$C2)] <- 'RAM抽驗批數'
+  ## RAM檢出批數
+  out$C3 <- C2original %>% filter(!is.na(批檢驗結果名稱修)) %>% Report(time); colnames(out$C3)[ncol(out$C3)] <- 'RAM檢出批數'
+  ## RAM未檢出批數
+  out$C4 <- C2original %>% filter(is.na(批檢驗結果名稱修)) %>% Report(time); colnames(out$C4)[ncol(out$C4)] <- 'RAM未檢出批數'
+  ## MRAM檢驗不合格批數
+  out$C5 <- C2original %>% filter((批檢驗結果名稱修 == '不合格')) %>% Report(time); colnames(out$C5)[ncol(out$C5)] <- 'RAM檢驗不合格批數'
+  
+  return(out)
+}
+
+
+
+
+################################################
+############### 一般加強逐批監視 ############### 
+################################################
+FirstSheet <- function(sheets=1, data=SqlData0, mode = 'original'){
+  cat(paste0('篩選條件', sheets, '：', dFilter[sheets] %>% unlist() %>% str_c(collapse = '、'), '，產製中．．．'))
+  oldTime <- Sys.time()
+  
+  dfAI <- NULL
+  for ( MLRAM in 1:2 ) {
+    OutputList <- AllVars(data = data, sheets = sheets, MLRAM = MLRAM, time = 'year', mode = mode)
+    
+    dfAITemp <- Reduce(function(x, y) merge(x, y, all.x=TRUE), 
+                       list(Foundation %>% filter(產品中分類 %in% unlist(dtOrder[MLRAM])), 
+                            OutputList$A1, OutputList$A2, OutputList$A3, OutputList$A4, OutputList$A5))
+    
+    dfAI <- dfAI %>% rbind(dfAITemp)
+    rm(dfAITemp, OutputList)
+  }
+  
+  ## 抽驗率、檢驗不合格率
+  dfAI <- dfAI %>% 
+    mutate(抽驗率 = percent(抽驗批數/報驗批數, accuracy = 0.01),
+              檢驗不合格率 = percent(檢驗不合格批數/檢出批數, accuracy = 0.01))
+              
+  ## 總計
+  checo='整年'; ric=-1
+  for (checo in unique(dfAI$是否同期)) {           # c('整年', '同期')
+    if (checo == '整年') {
+      periodEnd1 <- ifelse(periodEnd == 0, 0, periodEnd - 1)
+    }else if (checo == '同期') {
+      periodEnd1 <- periodEnd
+    }
+    
+    for (ric in periodStart:periodEnd1) {
+      dfAI <- add_row(dfAI, 產品中分類 = '總計', 產品中分類名稱 = '總計', 時間分組 = ric, 是否同期 = checo,
+                      報驗批數 = sum(dfAI$報驗批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$報驗批數))]),
+                      抽驗批數 = sum(dfAI$抽驗批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$抽驗批數))]),
+                      檢出批數 = sum(dfAI$檢出批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$檢出批數))]),
+                      未檢出批數 = sum(dfAI$未檢出批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$未檢出批數))]),
+                      檢驗不合格批數 = sum(dfAI$檢驗不合格批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$檢驗不合格批數))]),
+                      抽驗率 = percent(sum(dfAI$抽驗批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$抽驗批數))])/sum(dfAI$報驗批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$報驗批數))]), accuracy = 0.01),
+                      檢驗不合格率 = percent(sum(dfAI$檢驗不合格批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$檢驗不合格批數))])/sum(dfAI$檢出批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$檢出批數))]), accuracy = 0.01) )
+    }
+  }
+  
+  
+  ## 補0
+  dfAI <- dfAI[complete.cases(dfAI[ , '產品中分類']),]
+  dfAI$報驗批數[is.na(dfAI$報驗批數)] <- 0
+  dfAI$抽驗批數[dfAI$報驗批數!=0 & is.na(dfAI$抽驗批數)] <- 0
+  dfAI$檢出批數[dfAI$抽驗批數!=0 & is.na(dfAI$檢出批數)] <- 0
+  dfAI$未檢出批數[dfAI$抽驗批數!=0 & is.na(dfAI$未檢出批數)] <- 0
+  dfAI$檢驗不合格批數[dfAI$檢出批數!=0 & is.na(dfAI$檢驗不合格批數)] <- 0
+  dfAI$抽驗率[dfAI$抽驗批數 == 0] <- '0.00%'
+  dfAI$檢驗不合格率[dfAI$檢驗不合格批數 == 0] <- '0.00%'
+  
+  ## 補槓槓 --
+  dfAI[is.na(dfAI)] <- '－'
+  
+  ## 排序
+  dfAI <- dfAI[c("產品中分類", "產品中分類名稱", "時間分組", "是否同期",
+                 "報驗批數", "抽驗批數", "抽驗率",
+                 "檢出批數", "未檢出批數", "檢驗不合格批數", "檢驗不合格率")]
+  
+  dfAI$產品中分類 <- factor( as.character(dfAI$產品中分類), levels = c(unlist(dtOrder), '總計'))
+  dfAI$是否同期 <- factor( as.character(dfAI$是否同期), levels = c('整年', '同期'))
+  dfAI <- dfAI[order(dfAI$產品中分類, dfAI$是否同期, -dfAI$時間分組), ]
+  
+  
+  dfAI <<- dfAI
+  
+  
+  newTime <- Sys.time()
+  runTime <- round(difftime(newTime, oldTime, units = 'secs'), 4)
+  cat(paste0('----------------共耗時', runTime, '秒'),'\n')
+}
+
+
+
+
+
+################################################
+############# 一般加強、一般、加強 ############# 
+################################################
+Second2FourthSheets <- function(sheets=2, data=SqlData0, mode = 'original'){
+  cat(paste0('篩選條件', sheets, '：', dFilter[sheets] %>% unlist() %>% str_c(collapse = '、'), '，產製中．．．'))
+  oldTime <- Sys.time()
+  
+  dfAI <- NULL; dfDaily <- NULL
+  for ( MLRAM in 1:2 ) {
+    
+    OutputList <- AllVars(data = data, sheets = sheets, MLRAM = MLRAM, time = 'year', mode = mode)
+    OutputListDaily <- AllVars(data = data, sheets = sheets, MLRAM = MLRAM, time = 'daily', mode = mode)
+    
+    
+    dfAITemp <- Reduce(function(x, y) merge(x, y, all.x=TRUE), list(Foundation %>% dplyr::filter(產品中分類 %in% unlist(dtOrder[MLRAM])), 
+                                                                    OutputList$A1, OutputList$A2, OutputList$A3, OutputList$A4, OutputList$A5, 
+                                                                    OutputList$A6, OutputList$A7, OutputList$A8, OutputList$A9, OutputList$C2))
+    
+    ### MLRAM=1，需要ML表及RAM表
+    ### MLRAM=2，需要RAM表
+    if (MLRAM == 1) {
+      
+      if (mode == 'original') {
+        dfML <- Reduce(function(x, y) merge(x, y, all.x=TRUE), list(Foundation %>% dplyr::filter(產品中分類 %in% unlist(dtOrder[MLRAM]), 時間分組 >= 0), 
+                                                                    OutputList$A1 %>% dplyr::filter(時間分組 >= 0), 
+                                                                    OutputList$B1, OutputList$B2, OutputList$B3, OutputList$B4))
+        dfML_2019 <- dfAITemp[which(dfAITemp$時間分組 < 0 & dfAITemp$產品中分類 %in% unlist(dtOrder[MLRAM])), c(1:9)]; colnames(dfML_2019) <- colnames(dfML)
+        dfML <- dfML %>% rbind(dfML_2019); rm(dfML_2019)
+        
+        
+        dfRAM1 <- Reduce(function(x, y) merge(x, y, all.x=TRUE), list(Foundation %>% dplyr::filter(產品中分類 %in% unlist(dtOrder[MLRAM]), 時間分組 >= 0), 
+                                                                      OutputList$C1, OutputList$C2, OutputList$C3, OutputList$C4, OutputList$C5))
+      }else if (mode == 'division') {  # 區管表
+        dfML <- Reduce(function(x, y) merge(x, y, all.x=TRUE), list(Foundation %>% dplyr::filter(產品中分類 %in% unlist(dtOrder[MLRAM])), 
+                                                                    OutputList$A1, 
+                                                                    OutputList$B1, OutputList$B2, OutputList$B3, OutputList$B4))
+        
+        dfRAM1 <- Reduce(function(x, y) merge(x, y, all.x=TRUE), list(Foundation %>% dplyr::filter(產品中分類 %in% unlist(dtOrder[MLRAM]), 時間分組 == -1), 
+                                                                      OutputList$C1, OutputList$C2, OutputList$C3, OutputList$C4, OutputList$C5))
+      }
+    
+      
+      # 排序
+      dfML$產品中分類 <- factor( as.character(dfML$產品中分類), levels = unlist(dtOrder[MLRAM]))
+      dfML <- dfML[order(dfML$產品中分類, dfML$時間分組), ]
+      
+      
+      
+      dfDailyTemp <- Reduce(function(x, y) merge(x, y, all.x=TRUE), list(OutputListDaily$A1, OutputListDaily$B1, OutputListDaily$C2, OutputListDaily$A6))
+      
+    }else{
+      
+      if (mode == 'original') {
+        dfRAM2 <- Reduce(function(x, y) merge(x, y, all.x=TRUE), list(Foundation %>% dplyr::filter(產品中分類 %in% unlist(dtOrder[MLRAM]), 時間分組 >= 0), 
+                                                                      OutputList$C1, OutputList$C2, OutputList$C3, OutputList$C4, OutputList$C5))
+      }else if (mode == 'division') {  # 區管表
+        dfRAM2 <- Reduce(function(x, y) merge(x, y, all.x=TRUE), list(Foundation %>% dplyr::filter(產品中分類 %in% unlist(dtOrder[MLRAM]), 時間分組 == -1), 
+                                                                      OutputList$C1, OutputList$C2, OutputList$C3, OutputList$C4, OutputList$C5))
+      }  
+      
+      dfDailyTemp <- Reduce(function(x, y) merge(x, y, all.x=TRUE), list(OutputListDaily$A1, OutputListDaily$C2, OutputListDaily$A6))
+      dfDailyTemp$ML抽驗批數 <- NA
+    }
+    
+    dfDaily <- dfDaily %>% rbind(dfDailyTemp)
+    rm(dfDailyTemp, OutputListDaily)
+    
+    
+    dfAI <- dfAI %>% rbind(dfAITemp)
+    rm(dfAITemp, OutputList)
+    
+  }
+  
+  
+  
+  ## 抽驗率、檢驗不合格率、AI抽驗率、AI檢驗不合格率
+  dfAI <- dfAI %>% 
+    mutate(抽驗率 = percent(抽驗批數/報驗批數, accuracy = 0.01),
+              檢驗不合格率 = percent(檢驗不合格批數/檢出批數, accuracy = 0.01),
+              AI抽驗率 = percent(AI抽驗批數/報驗批數, accuracy = 0.01),
+              AI檢驗不合格率 = percent(AI檢驗不合格批數/AI檢出批數, accuracy = 0.01) )
+  
+  dfML <- dfML %>% 
+    mutate(ML抽驗率 = percent(ML抽驗批數/報驗批數, accuracy = 0.01),
+           ML檢驗不合格率 = percent(ML檢驗不合格批數/ML檢出批數, accuracy = 0.01))
+  
+  dfRAM1 <- dfRAM1 %>%
+    mutate(RAM抽驗率 = percent(RAM抽驗批數/RAM報驗批數, accuracy = 0.01),
+           RAM檢驗不合格率 = percent(RAM檢驗不合格批數/RAM檢出批數, accuracy = 0.01))
+  dfRAM2 <- dfRAM2 %>%
+    mutate(RAM抽驗率 = percent(RAM抽驗批數/RAM報驗批數, accuracy = 0.01),
+           RAM檢驗不合格率 = percent(RAM檢驗不合格批數/RAM檢出批數, accuracy = 0.01))
+  
+  
+  ## 總計
+  checo='整年'; ric=-1
+  for (checo in unique(dfAI$是否同期)) {              # c('整年', '同期')
+    if (checo == '整年') {
+      periodEnd1 <- ifelse(periodEnd == 0, 0, periodEnd - 1)
+    }else if (checo == '同期') {
+      periodEnd1 <- periodEnd
+    }
+    
+    for (ric in periodStart:periodEnd1) {
+      dfAI <- add_row(dfAI, 產品中分類 = '總計', 產品中分類名稱 = '總計', 時間分組 = ric, 是否同期 = checo,
+                      報驗批數 = sum(dfAI$報驗批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$報驗批數))]),
+                      抽驗批數 = sum(dfAI$抽驗批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$抽驗批數))]),
+                      檢出批數 = sum(dfAI$檢出批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$檢出批數))]),
+                      未檢出批數 = sum(dfAI$未檢出批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$未檢出批數))]),
+                      檢驗不合格批數 = sum(dfAI$檢驗不合格批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$檢驗不合格批數))]),
+                      AI抽驗批數 = sum(dfAI$AI抽驗批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$AI抽驗批數))]),
+                      RAM抽驗批數 = sum(dfAI$RAM抽驗批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$RAM抽驗批數))]),
+                      AI檢出批數 = sum(dfAI$AI檢出批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$AI檢出批數))]),
+                      AI未檢出批數 = sum(dfAI$AI未檢出批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$AI未檢出批數))]),
+                      AI檢驗不合格批數 = sum(dfAI$AI檢驗不合格批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$AI檢驗不合格批數))]),
+                      AI抽驗率 = percent(sum(dfAI$AI抽驗批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$AI抽驗批數))])/sum(dfAI$報驗批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$報驗批數))]), accuracy = 0.01),
+                      AI檢驗不合格率 = percent(sum(dfAI$AI檢驗不合格批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$AI檢驗不合格批數))])/sum(dfAI$AI檢出批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$AI檢出批數))]), accuracy = 0.01),
+                      抽驗率 = percent(sum(dfAI$抽驗批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$抽驗批數))])/sum(dfAI$報驗批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$報驗批數))]), accuracy = 0.01),
+                      檢驗不合格率 = percent(sum(dfAI$檢驗不合格批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$檢驗不合格批數))])/sum(dfAI$檢出批數[which(dfAI$時間分組 == ric & dfAI$是否同期 == checo & !is.na(dfAI$檢出批數))]), accuracy = 0.01) )
+      
+      dfML <- add_row(dfML, 產品中分類 = '總計', 產品中分類名稱 = '總計', 時間分組 = ric, 是否同期 = checo,
+                      報驗批數 = sum(dfML$報驗批數[which(dfML$時間分組 == ric & dfML$是否同期 == checo & !is.na(dfML$報驗批數))]),
+                      ML抽驗批數 = sum(dfML$ML抽驗批數[which(dfML$時間分組 == ric & dfML$是否同期 == checo & !is.na(dfML$ML抽驗批數))]),
+                      ML檢出批數 = sum(dfML$ML檢出批數[which(dfML$時間分組 == ric & dfML$是否同期 == checo & !is.na(dfML$ML檢出批數))]),
+                      ML未檢出批數 = sum(dfML$ML未檢出批數[which(dfML$時間分組 == ric & dfML$是否同期 == checo & !is.na(dfML$ML未檢出批數))]),
+                      ML檢驗不合格批數 = sum(dfML$ML檢驗不合格批數[which(dfML$時間分組 == ric & dfML$是否同期 == checo & !is.na(dfML$ML檢驗不合格批數))]),
+                      ML抽驗率 = percent(sum(dfML$ML抽驗批數[which(dfML$時間分組 == ric & dfML$是否同期 == checo & !is.na(dfML$ML抽驗批數))])/sum(dfML$報驗批數[which(dfML$時間分組 == ric & dfML$是否同期 == checo & !is.na(dfML$報驗批數))]), accuracy = 0.01),
+                      ML檢驗不合格率 = percent(sum(dfML$ML檢驗不合格批數[which(dfML$時間分組 == ric & dfML$是否同期 == checo & !is.na(dfML$ML檢驗不合格批數))])/sum(dfML$ML檢出批數[which(dfML$時間分組 == ric & dfML$是否同期 == checo & !is.na(dfML$ML檢出批數))]), accuracy = 0.01) )
+      
+    }
+    
+    for (ric in if (mode == 'original') {(periodStart+1):periodEnd1}else if (mode == 'division') {periodStart:(periodEnd1-1)}) {
+      dfRAM1 <- add_row(dfRAM1, 產品中分類 = '總計1', 產品中分類名稱 = '總計1', 時間分組 = ric, 是否同期 = checo,
+                        RAM報驗批數 = sum(dfRAM1$RAM報驗批數[which(dfRAM1$時間分組 == ric & dfRAM1$是否同期 == checo & !is.na(dfRAM1$RAM報驗批數))]),
+                        RAM抽驗批數 = sum(dfRAM1$RAM抽驗批數[which(dfRAM1$時間分組 == ric & dfRAM1$是否同期 == checo & !is.na(dfRAM1$RAM抽驗批數))]),
+                        RAM檢出批數 = sum(dfRAM1$RAM檢出批數[which(dfRAM1$時間分組 == ric & dfRAM1$是否同期 == checo & !is.na(dfRAM1$RAM檢出批數))]),
+                        RAM未檢出批數 = sum(dfRAM1$RAM未檢出批數[which(dfRAM1$時間分組 == ric & dfRAM1$是否同期 == checo & !is.na(dfRAM1$RAM未檢出批數))]),
+                        RAM檢驗不合格批數 = sum(dfRAM1$RAM檢驗不合格批數[which(dfRAM1$時間分組 == ric & dfRAM1$是否同期 == checo & !is.na(dfRAM1$RAM檢驗不合格批數))]),
+                        RAM抽驗率 = percent(sum(dfRAM1$RAM抽驗批數[which(dfRAM1$時間分組 == ric & dfRAM1$是否同期 == checo & !is.na(dfRAM1$RAM抽驗批數))])/sum(dfRAM1$RAM報驗批數[which(dfRAM1$時間分組 == ric & dfRAM1$是否同期 == checo & !is.na(dfRAM1$RAM報驗批數))]), accuracy = 0.01),
+                        RAM檢驗不合格率 = percent(sum(dfRAM1$RAM檢驗不合格批數[which(dfRAM1$時間分組 == ric & dfRAM1$是否同期 == checo & !is.na(dfRAM1$RAM檢驗不合格批數))])/sum(dfRAM1$RAM檢出批數[which(dfRAM1$時間分組 == ric & dfRAM1$是否同期 == checo & !is.na(dfRAM1$RAM檢出批數))]), accuracy = 0.01) )
+      dfRAM2 <- add_row(dfRAM2, 產品中分類 = '總計2', 產品中分類名稱 = '總計2', 時間分組 = ric, 是否同期 = checo,
+                        RAM報驗批數 = sum(dfRAM2$RAM報驗批數[which(dfRAM2$時間分組 == ric & dfRAM2$是否同期 == checo & !is.na(dfRAM2$RAM報驗批數))]),
+                        RAM抽驗批數 = sum(dfRAM2$RAM抽驗批數[which(dfRAM2$時間分組 == ric & dfRAM2$是否同期 == checo & !is.na(dfRAM2$RAM抽驗批數))]),
+                        RAM檢出批數 = sum(dfRAM2$RAM檢出批數[which(dfRAM2$時間分組 == ric & dfRAM2$是否同期 == checo & !is.na(dfRAM2$RAM檢出批數))]),
+                        RAM未檢出批數 = sum(dfRAM2$RAM未檢出批數[which(dfRAM2$時間分組 == ric & dfRAM2$是否同期 == checo & !is.na(dfRAM2$RAM未檢出批數))]),
+                        RAM檢驗不合格批數 = sum(dfRAM2$RAM檢驗不合格批數[which(dfRAM2$時間分組 == ric & dfRAM2$是否同期 == checo & !is.na(dfRAM2$RAM檢驗不合格批數))]),
+                        RAM抽驗率 = percent(sum(dfRAM2$RAM抽驗批數[which(dfRAM2$時間分組 == ric & dfRAM2$是否同期 == checo & !is.na(dfRAM2$RAM抽驗批數))])/sum(dfRAM2$RAM報驗批數[which(dfRAM2$時間分組 == ric & dfRAM2$是否同期 == checo & !is.na(dfRAM2$RAM報驗批數))]), accuracy = 0.01),
+                        RAM檢驗不合格率 = percent(sum(dfRAM2$RAM檢驗不合格批數[which(dfRAM2$時間分組 == ric & dfRAM2$是否同期 == checo & !is.na(dfRAM2$RAM檢驗不合格批數))])/sum(dfRAM2$RAM檢出批數[which(dfRAM2$時間分組 == ric & dfRAM2$是否同期 == checo & !is.na(dfRAM2$RAM檢出批數))]), accuracy = 0.01) )
+    }
+  }
+  
+  
+  
+  ## 補0
+  if (mode == 'original') {
+    omg = 0
+  }else if (mode == 'division') {
+    omg = -1
+  }
+  dfAI <- dfAI[complete.cases(dfAI[ , '產品中分類']),]
+  dfAI$報驗批數[is.na(dfAI$報驗批數)] <- 0
+  dfAI$抽驗批數[dfAI$報驗批數!=0 & is.na(dfAI$抽驗批數)] <- 0
+  dfAI$檢出批數[dfAI$抽驗批數!=0 & is.na(dfAI$檢出批數)] <- 0
+  dfAI$未檢出批數[dfAI$抽驗批數!=0 & is.na(dfAI$未檢出批數)] <- 0
+  dfAI$檢驗不合格批數[dfAI$檢出批數!=0 & is.na(dfAI$檢驗不合格批數)] <- 0
+  dfAI$AI抽驗批數[dfAI$時間分組 >= omg & dfAI$抽驗批數!=0 & is.na(dfAI$AI抽驗批數)] <- 0; dfAI$AI抽驗批數[dfAI$時間分組 < omg] <- NA
+  dfAI$AI檢出批數[dfAI$時間分組 >= omg & dfAI$AI抽驗批數!=0 & is.na(dfAI$AI檢出批數)] <- 0; dfAI$AI檢出批數[dfAI$時間分組 < omg] <- NA
+  dfAI$AI未檢出批數[dfAI$時間分組 >= omg & dfAI$AI抽驗批數!=0 & is.na(dfAI$AI未檢出批數)] <- 0; dfAI$AI未檢出批數[dfAI$時間分組 < omg] <- NA
+  dfAI$AI檢驗不合格批數[dfAI$時間分組 >= omg & dfAI$AI檢出批數!=0 & is.na(dfAI$AI檢驗不合格批數)] <- 0; dfAI$AI檢驗不合格批數[dfAI$時間分組 < omg] <- NA
+  dfAI$RAM抽驗批數[dfAI$AI抽驗批數!=0 & is.na(dfAI$RAM抽驗批數)] <- 0; dfAI$RAM抽驗批數[dfAI$時間分組 < omg] <- NA
+  dfAI$抽驗率[dfAI$抽驗批數 == 0] <- '0.00%'
+  dfAI$檢驗不合格率[dfAI$檢驗不合格批數 == 0] <- '0.00%'
+  dfAI$AI抽驗率[dfAI$時間分組 >= omg & dfAI$AI抽驗批數 == 0] <- '0.00%'; dfAI$AI抽驗率[dfAI$時間分組 < omg] <- NA
+  dfAI$AI檢驗不合格率[dfAI$時間分組 >= omg & dfAI$AI檢驗不合格批數 == 0] <- '0.00%'; dfAI$AI檢驗不合格率[dfAI$時間分組 < omg] <- NA
+  
+  dfML <- dfML[complete.cases(dfML[ , '產品中分類']),]
+  dfML$報驗批數[is.na(dfML$報驗批數)] <- 0
+  dfML$ML抽驗批數[dfML$報驗批數!=0 & is.na(dfML$ML抽驗批數)] <- 0
+  dfML$ML檢出批數[dfML$ML抽驗批數!=0 & is.na(dfML$ML檢出批數)] <- 0
+  dfML$ML未檢出批數[dfML$ML抽驗批數!=0 & is.na(dfML$ML未檢出批數)] <- 0
+  dfML$ML檢驗不合格批數[dfML$ML檢出批數!=0 & is.na(dfML$ML檢驗不合格批數)] <- 0
+  dfML$ML抽驗率[dfML$ML抽驗批數 == 0] <- '0.00%'
+  dfML$ML檢驗不合格率[dfML$ML檢驗不合格批數 == 0] <- '0.00%'
+  
+  dfRAM <- rbind(dfRAM1, dfRAM2); rm(dfRAM1, dfRAM2)
+  dfRAM <- dfRAM[complete.cases(dfRAM[ , '產品中分類']),]
+  dfRAM$RAM報驗批數[is.na(dfRAM$RAM報驗批數)] <- 0
+  dfRAM$RAM抽驗批數[dfRAM$RAM報驗批數!=0 & is.na(dfRAM$RAM抽驗批數)] <- 0
+  dfRAM$RAM檢出批數[dfRAM$RAM抽驗批數!=0 & is.na(dfRAM$RAM檢出批數)] <- 0
+  dfRAM$RAM未檢出批數[dfRAM$RAM抽驗批數!=0 & is.na(dfRAM$RAM未檢出批數)] <- 0
+  dfRAM$RAM檢驗不合格批數[dfRAM$RAM檢出批數!=0 & is.na(dfRAM$RAM檢驗不合格批數)] <- 0
+  dfRAM$RAM抽驗率[dfRAM$RAM抽驗批數 == 0] <- '0.00%'
+  dfRAM$RAM檢驗不合格率[dfRAM$RAM檢驗不合格批數 == 0] <- '0.00%'
+  
+  ## 補槓槓 --
+  dfAI[is.na(dfAI)] <- '－'
+  dfML[is.na(dfML)] <- '－'
+  dfRAM[is.na(dfRAM)] <- '－'
+  
+  
+  ## 每日報表處理
+  dfDailyTotal <- NULL
+  # OnlineDate <- SqlData %>%
+  #   select(產品中分類, 上線日期) %>%
+  #   unique()
+  # 
+  # for (checho in (periodStart+1):periodEnd) {
+  #   
+  # }
+  for (ric in c('報驗批數', 'ML抽驗批數', 'RAM抽驗批數', 'AI抽驗批數')) {
+    if ( eval(parse(text = paste0("dfDaily$", ric))) %>% is.na() %>% sum() == nrow(dfDaily) ) {
+      A <- dfDaily %>%
+        select('產品中分類', '產品中分類名稱') %>%
+        unique() %>%
+        mutate(NA)
+      colnames(A)[ncol(A)] <- ric
+    }
+    else{
+      A <- dfDaily %>%
+        aggregate(eval(parse(text=paste0(ric, '~ 產品中分類+產品中分類名稱'))), data = ., FUN = sum)
+    }
+    
+    
+    if (ric == '報驗批數') {
+      dfDailyTotal <- A
+    }else{
+      dfDailyTotal <- dfDailyTotal %>%
+        merge(A, by = c('產品中分類', '產品中分類名稱'), all.x = TRUE)
+    }
+  }
+  dfDailyTotal <- Foundation %>% 
+    select(產品中分類, 產品中分類名稱) %>%
+    unique() %>%
+    merge(dfDailyTotal, all.x = TRUE) %>%
+    mutate(受理日期 = '總計')
+  
+  dfDaily$受理日期 <- as.character(dfDaily$受理日期)
+  dfDaily <- rbind(dfDaily, dfDailyTotal); rm(dfDailyTotal)
+  
+  
+  dfDaily <- dfDaily[complete.cases(dfDaily[ , '產品中分類']),]
+  dfDaily$報驗批數[is.na(dfDaily$報驗批數)] <- 0
+  dfDaily$AI抽驗批數[dfDaily$報驗批數!=0 & is.na(dfDaily$AI抽驗批數)] <- 0
+  dfDaily$ML抽驗批數[dfDaily$AI抽驗批數!=0 & is.na(dfDaily$ML抽驗批數)] <- 0
+  dfDaily$RAM抽驗批數[dfDaily$AI抽驗批數!=0 & is.na(dfDaily$RAM抽驗批數)] <- 0
+  
+  dfDaily <- dfDaily %>%
+    mutate(AI抽驗率 = percent(AI抽驗批數/報驗批數, accuracy = 0.01) )
+  
+  dfDaily[is.na(dfDaily)] <- '－'
+  
+  # 轉置
+  dfDailyFinal <- matrix(ncol = length(dfDailyLabel)) %>% as.data.frame(); colnames(dfDailyFinal) <- dfDailyLabel
+  for (m in 1:5) {
+    dfDailyTemp <- dfDaily[, c(1:3, m+3)] %>%
+      spread(key = '受理日期', value = dfDailyName[m]) %>%
+      tibble::add_column(受理日期 = dfDailyName[m], .after = "產品中分類名稱")
+    dfDailyFinal <- merge(dfDailyFinal, dfDailyTemp, all = TRUE)
+  }
+  dfDailyFinal <- dfDailyFinal[dfDailyLabel]
+  rm(dfDaily, dfDailyTemp)
+  # 移除na列並合併
+  dfDailyFinal <- dfDailyFinal[rowSums(is.na(dfDailyFinal)) != ncol(dfDailyFinal), ]
+  dfDailyFinal <- merge(Foundation2, dfDailyFinal, all.x = TRUE)
+  
+  dfDailyFinal$產品中分類 <- factor( as.character(dfDailyFinal$產品中分類), levels = unlist(dtOrder))
+  dfDailyFinal$受理日期 <- factor( as.character(dfDailyFinal$受理日期), levels = dfDailyName)
+  dfDailyFinal <- dfDailyFinal[order(dfDailyFinal$產品中分類, dfDailyFinal$受理日期), ]
+  
+  
+  
+  ## 排序
+  dfAI <- dfAI[c("產品中分類", "產品中分類名稱", "時間分組", "是否同期",
+                 "報驗批數", "抽驗批數", "抽驗率",
+                 "檢出批數", "未檢出批數", "檢驗不合格批數", "檢驗不合格率",
+                 "AI抽驗批數", "RAM抽驗批數", "AI抽驗率", "AI檢出批數", "AI未檢出批數", "AI檢驗不合格批數", "AI檢驗不合格率")]
+  
+  dfAI$產品中分類 <- factor( as.character(dfAI$產品中分類), levels = c(unlist(dtOrder), '總計'))
+  dfAI$是否同期 <- factor( as.character(dfAI$是否同期), levels = c('整年', '同期'))
+  dfAI <- dfAI[order(dfAI$產品中分類, dfAI$是否同期, -dfAI$時間分組), ]
+  
+  dfML <- dfML[c("產品中分類", "產品中分類名稱", "時間分組", "是否同期",
+                 "報驗批數", "ML抽驗批數", "ML抽驗率",
+                 "ML檢出批數", "ML未檢出批數", "ML檢驗不合格批數", "ML檢驗不合格率")]
+  
+  dfML$產品中分類 <- factor( as.character(dfML$產品中分類), levels = c(unlist(dtOrder), '總計'))
+  dfML$是否同期 <- factor( as.character(dfML$是否同期), levels = c('整年', '同期'))
+  dfML <- dfML[order(dfML$產品中分類, dfML$是否同期, -dfML$時間分組), ]
+  
+  dfRAM <- dfRAM[c("產品中分類", "產品中分類名稱", "時間分組", "是否同期",
+                   "RAM報驗批數", "RAM抽驗批數", "RAM抽驗率",
+                   "RAM檢出批數", "RAM未檢出批數", "RAM檢驗不合格批數", "RAM檢驗不合格率")]
+
+  dfRAM$產品中分類 <- factor( as.character(dfRAM$產品中分類), levels = c(unlist(dtOrder[1]), '總計1', unlist(dtOrder[2]), '總計2'))
+  dfRAM$是否同期 <- factor( as.character(dfRAM$是否同期), levels = c('整年', '同期'))
+  dfRAM <- dfRAM[order(dfRAM$產品中分類, dfRAM$是否同期, -dfRAM$時間分組), ]
+  
+  
+  
+  dfAI <<- dfAI
+  dfML <<- dfML
+  dfRAM <<- dfRAM
+  dfDailyFinal <<- dfDailyFinal
+  
+  
+  newTime <- Sys.time()
+  runTime <- round(difftime(newTime, oldTime, units = 'secs'), 4)
+  cat(paste0('----------------共耗時', runTime, '秒'),'\n')
+}
+
+
+
+
+################################################
+################### 表格寫出 ################### 
+################################################
+writeSheets <- function(writeOrder = 1){
+  
+  # dfAI
+  if (writeOrder == 1) {
+    sheetnum <- which(str_detect(wb$sheet_names, paste0('表', writeOrder)))
+  }else{
+    sheetnum <- which(str_detect(wb$sheet_names, paste0('表', writeOrder)) & str_detect(wb$sheet_names, 'AI'))
+  }
+  
+  writeData(wb, sheetnum, dfAI)
+  addStyle(wb, sheet = sheetnum, style = titleStyle, rows = 1:(nrow(dfAI)+1), cols = 1:4, gridExpand = TRUE)          # 標題欄粗體字型
+  addStyle(wb, sheet = sheetnum, style = titleStyle, rows = 1:1, cols = 1:ncol(dfAI), gridExpand = TRUE)              # 標題列粗體字型
+  setColWidths(wb, sheet = sheetnum, cols = 1:ncol(dfAI), widths = "auto")                                            # 設定欄寬自動
+  freezePane(wb, sheet = sheetnum, firstActiveRow = 2, firstActiveCol = 5)                                            # 凍結第一列欄
+  
+  
+  if (writeOrder > 1) {
+    # ML
+    sheetnum <- which(str_detect(wb$sheet_names, paste0('表', writeOrder)) & str_detect(wb$sheet_names, 'ML'))
+    writeData(wb, sheetnum, dfML)
+    addStyle(wb, sheet = sheetnum, style = titleStyle, rows = 1:(nrow(dfML)+1), cols = 1:4, gridExpand = TRUE)
+    addStyle(wb, sheet = sheetnum, style = titleStyle, rows = 1:1, cols = 1:ncol(dfML), gridExpand = TRUE)
+    setColWidths(wb, sheet = sheetnum, cols = 1:ncol(dfML), widths = "auto")
+    freezePane(wb, sheet = sheetnum, firstActiveRow = 2, firstActiveCol = 5)
+    
+    # RAM
+    sheetnum <- which(str_detect(wb$sheet_names, paste0('表', writeOrder)) & str_detect(wb$sheet_names, 'RAM'))
+    writeData(wb, sheetnum, dfRAM)
+    addStyle(wb, sheet = sheetnum, style = titleStyle, rows = 1:(nrow(dfRAM)+1), cols = 1:4, gridExpand = TRUE)
+    addStyle(wb, sheet = sheetnum, style = titleStyle, rows = 1:1, cols = 1:ncol(dfRAM), gridExpand = TRUE)
+    setColWidths(wb, sheet = sheetnum, cols = 1:ncol(dfRAM), widths = "auto")
+    freezePane(wb, sheet = sheetnum, firstActiveRow = 2, firstActiveCol = 5)
+    
+    # 每日
+    sheetnum <- which(str_detect(wb$sheet_names, paste0('表', writeOrder)) & str_detect(wb$sheet_names, '每日'))
+    writeData(wb, sheetnum, dfDailyFinal)
+    addStyle(wb, sheet = sheetnum, style = titleStyle, rows = 1:(nrow(dfDailyFinal)+1), cols = 1:3, gridExpand = TRUE)
+    addStyle(wb, sheet = sheetnum, style = titleStyle, rows = 1:1, cols = 1:ncol(dfDailyFinal), gridExpand = TRUE)
+    setColWidths(wb, sheet = sheetnum, cols = 1:ncol(dfDailyFinal), widths = "auto")
+    freezePane(wb, sheet = sheetnum, firstActiveRow = 2, firstActiveCol = 5)
+    
+    rm(dfML, dfRAM, dfDailyFinal)
+  }
+  
+  rm(dfAI)
+}
+
+
+
+
+
+writeSQL <- function(yourSQLdata, yourSQLname){
+  # 搞笑
+  cn<-c("要","不要")
+  
+  while (TRUE) {
+    ans <- readline(prompt = cn %>% paste(c(1:length(cn)),. , collapse = '；') %>% paste("是否要存SQL Data（",.,"）：")) %>% as.numeric()
+    
+    if (is.na(ans)|!ans %in% c(1,2)) {
+      cat("請輸入數字1、2")
+    }else{
+      cat(paste("您的選擇為：「",cn[ans],"」，後果自負，謝謝 :) \n", sep = ''))
+      break
+    }
+  }
+  
+  if (ans == 1) {
+    unlink(yourSQLname)
+    
+    cat('SQL資料寫出．．．')
+    oldTime <- Sys.time()
+    
+    wbSQL <- createWorkbook()
+    addWorksheet(wbSQL, 'SQL_Data')
+    writeData(wbSQL, 1, yourSQLdata)
+    saveWorkbook(wbSQL, file = yourSQLname, overwrite = TRUE)
+    
+    newTime <- Sys.time()
+    runTime <- round(difftime(newTime, oldTime, units = 'secs'), 4)
+    cat(paste0('----------------共耗時', runTime, '秒'),'\n')
+  }
+  
+}
+
+
+
+##################################################################################################################################
+############################################################## 執行 ############################################################## 
+##################################################################################################################################
+
+## check for the package versions
+pkgs <- list(name = c("lubridate", "tibble", "tidyr", "dplyr", "openxlsx", "scales", "stringr", "magrittr", "RODBC", "sqldf"),
+             version = c('1.7.4', '2.1.3', '1.0.2', '0.8.4', '4.2.3', '1.1.1', '1.4.0', '1.5', '1.3-16', '0.4.11'))
+
+for (ric in 1:length(pkgs$name)) {
+  if (packageVersion(pkgs$name[ric]) < pkgs$version[ric]) {
+    message(paste0("you need to update '", pkgs$name[ric], "', recommended version is ", pkgs$version[ric]))
+  }
+}
+
+
+# 定義擷取時間點
+dldt <- args[which(names(args) == 'downloaddatetime')]
+bgnPrd <- args[which(names(args) == 'beginPeriod')] %>% as.integer()
+
+while (TRUE) {
+  
+  if (dldt == 'now') {
+    GetSql(sqlWD, Sys.time(), bgnPrd)
+  }
+  else if ( !is.na(as.POSIXct(dldt)) ) {
+    GetSql(sqlWD, as.POSIXct(dldt), bgnPrd)
+  }
+  else {
+    cat("請輸入正確之日期時間格式，或輸入'now'以目前時間擷取")
+    break()
+  }
+  
+  
+  # 整年
+  SqlData0_1 <- SqlData %>%
+    dplyr::filter(時間分組 != 1)
+  SqlData0_1$是否同期 <- '整年'
+  # 同期
+  
+  if ( length(which(maxPeriod$中分類最大時間分組 == 1)) > 0 ) {
+    SqlData0_2 <- SqlData %>%
+      dplyr::filter(是否同期 == TRUE, 產品中分類 %in% maxPeriod$產品中分類[which(maxPeriod$中分類最大時間分組 == 1)])
+    SqlData0_2$是否同期 <- '同期'
+  }else{
+    SqlData0_2 <- NULL
+  }
+  
+  
+  
+  
+  SqlData0 <- rbind(SqlData0_1, SqlData0_2)
+  rm(SqlData0_1, SqlData0_2)
+  
+  
+  ### 中分類表
+  # 報表
+  Foundation0_1 <- Foundation0 %>%
+    dplyr::filter(時間分組 != 1 )
+  Foundation0_1$是否同期 <- '整年'
+  
+  
+  if ( length(which(maxPeriod$中分類最大時間分組 == 1)) > 0 ) {
+    Foundation0_2 <- Foundation0 %>%
+      dplyr::filter(產品中分類 %in% maxPeriod$產品中分類[which(maxPeriod$中分類最大時間分組 == 1)])
+    Foundation0_2$是否同期 <- '同期'
+  }else{
+    Foundation0_2 <- NULL
+  }
+  
+  
+  Foundation <- rbind(Foundation0_1, Foundation0_2)
+  rm(Foundation0_1, Foundation0_2)
+  
+  Foundation$產品中分類 <- factor( as.character(Foundation$產品中分類), levels = unlist(dtOrder))
+  Foundation$是否同期 <- factor( as.character(Foundation$是否同期), levels = c('整年', '同期'))
+  Foundation <- Foundation[order(Foundation$產品中分類, Foundation$是否同期, Foundation$時間分組), ]
+  
+  periodStart <- Foundation$時間分組 %>% min()
+  periodEnd <- Foundation$時間分組 %>% max()
+  
+  # 每日報表
+  Foundation2 <- rbind(Foundation %>% subset(select = c('產品中分類', '產品中分類名稱')) %>% mutate(受理日期 = '報驗批數'),
+                       Foundation %>% subset(select = c('產品中分類', '產品中分類名稱')) %>% mutate(受理日期 = 'ML抽驗批數'),
+                       Foundation %>% subset(select = c('產品中分類', '產品中分類名稱')) %>% mutate(受理日期 = 'RAM抽驗批數'),
+                       Foundation %>% subset(select = c('產品中分類', '產品中分類名稱')) %>% mutate(受理日期 = 'AI抽驗批數'),
+                       Foundation %>% subset(select = c('產品中分類', '產品中分類名稱')) %>% mutate(受理日期 = 'AI抽驗率')
+  ) %>% unique()
+  
+  dfDailyName <- c('報驗批數', 'ML抽驗批數', 'RAM抽驗批數', 'AI抽驗批數', 'AI抽驗率')
+  
+  dfDailyLabel <- c('產品中分類', '產品中分類名稱', '受理日期',
+                    as.character(seq(from = as.Date('2020-03-05'), to = lubridate::today(), by = 1) ),
+                    '總計'
+  )
+  
+  
+  # 檔案名稱
+  dataName <- paste0('邊境AI模型抽驗狀況彙整表_即時', format(unique(SqlData$下載時間), '%Y%m%d%H%M'), '.xlsx')
+  unlink(dataName)
+  
+  dataNameSQL <- paste0('邊境AI模型抽驗狀況彙整表_即時', format(unique(SqlData$下載時間), '%Y%m%d%H%M'), '_SqlData.xlsx')
+  colYouNeed <- which(!colnames(SqlData) %in% c("受理日期", '中分類最大時間分組'))
+  
+  
+  # 工作表
+  wb <- createWorkbook()
+  for (ric in sheetName) {
+    addWorksheet(wb, ric)
+  }
+  rm(ric)
+  # 設定 Excel 活頁簿預設字型
+  modifyBaseFont(wb, fontSize = 12, fontName = "Times New Roman")                 # 整體
+  titleStyle <- createStyle(fontName = "微軟正黑體", textDecoration = "bold")     # 標題
+  
+  
+  
+  ## 產表及寫出
+  if (setBigSheets) {
+    
+    for (i in 1:length(dFilter) ) {
+      if (i == 1) {
+        FirstSheet(i)
+      }else{
+        Second2FourthSheets(i)
+      }
+      
+      writeSheets(i)
+    }
+    
+    #### 表9、耗時表
+    ElapsedTime$時差_秒 <- (ElapsedTime$結束時間 - ElapsedTime$開始時間) %>% as.numeric() %>% round(2)
+    addWorksheet(wb, '表9、SQL區段耗時表')
+    writeData(wb, length(wb$sheet_names), ElapsedTime)
+    setColWidths(wb, sheet = which(wb$sheet_names == '表9、SQL區段耗時表'), cols = 2:ncol(ElapsedTime), widths = 20)
+    
+    
+    cat(paste0('輸出報表至："', getwd(), '"\n'))
+    saveWorkbook(wb, file = dataName, overwrite = TRUE)
+    
+    
+  }
+
+  
+  
+  
+  
+  
+  
+  
+  
+  if ( setDivisionSheets ) { # 2021年後才需要產區管表
+    
+    #### 區管表 ####
+    cat(paste0('開始產製區管表\n'))
+    # BPI上線-迄今
+    SqlData1_1 <- SqlData %>%
+      dplyr::filter(受理日期時間 >= 上線日期)
+    SqlData1_1$時間分組 <- -1
+    SqlData1_1$是否同期 <- '同期'
+    # 110年-迄今
+    SqlData1_2 <- SqlData %>%
+      dplyr::filter(受理日期時間 >= '2021-01-01 00:00:00')
+    SqlData1_2$時間分組 <- 0
+    SqlData1_2$是否同期 <- '同期'
+    
+    
+    SqlData1 <- rbind(SqlData1_1, SqlData1_2)
+    rm(SqlData1_1, SqlData1_2)
+    
+    
+    periodStart=-1; periodEnd=0
+    Foundation$是否同期 <- '同期'
+    Foundation <- Foundation %>%
+      dplyr::filter(時間分組 %in% c(-1,0)) %>%
+      unique()
+    
+    
+    # 檔案名稱
+    dataName2 <- paste0('邊境AI模型抽驗狀況彙整表_即時', format(unique(SqlData$下載時間), '%Y%m%d%H%M'), '_區管.xlsx')
+    unlink(dataName2)
+    
+    
+    # 工作表
+    wb <- createWorkbook()
+    for (ric in sheetName) {
+      addWorksheet(wb, ric)
+    }
+    rm(ric)
+    # 設定 Excel 活頁簿預設字型
+    modifyBaseFont(wb, fontSize = 12, fontName = "Times New Roman")                 # 整體
+    titleStyle <- createStyle(fontName = "微軟正黑體", textDecoration = "bold")     # 標題
+    
+    
+    
+    ## 產表及寫出
+    for (i in 1:length(dFilter) ) {
+      if (i == 1) {
+        FirstSheet(sheets = i, data = SqlData1, mode = 'division')
+      }else{
+        Second2FourthSheets(sheets = i, data = SqlData1, mode = 'division')
+      }
+      
+      writeSheets(i)
+    }
+    
+    # 移除不需要的表
+    for (i in c(3,5,7,9,11,13)) {
+      removeWorksheet(wb, sheet = sheetName[i])
+    }
+    
+
+    cat(paste0('輸出區管報表至："', getwd(), '"\n'))
+    saveWorkbook(wb, file = dataName2, overwrite = TRUE)
+    
+    
+    
+  }
+  
+  
+  
+  
+  
+  
+  
+  #### SQL DATA ####
+  writeSQL(SqlData[colYouNeed], dataNameSQL)
+  
+  break()
+}
+
+
+
+
