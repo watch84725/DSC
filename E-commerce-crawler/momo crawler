@@ -1,0 +1,60 @@
+library(RSelenium)
+library(rvest)
+library(stringr)
+library(dplyr)
+foodKey = c("蛋糕","提拉米蘇","糕點","餅乾","糖果","布丁","點心","泡芙","奶酥","吐司","蛋塔","麵包","瑞士捲","核桃酥",
+            "起酥捲","三明治","乳酪","奶油","起司","奶凍捲","太陽餅","鳳梨酥","餡餅","檸檬塔","麻糬","米香","饅頭","包子","銀絲卷")
+driver <- remoteDriver(remoteServerAddr = "localhost", port = 4444, browserName = "chrome")
+# 打開瀏覽器
+driver$open()
+
+# 打開網址
+ResultText = NULL
+for (k in 1:length(foodKey)) {
+  driver$navigate("https://www.momoshop.com.tw/main/Main.jsp")
+  Sys.sleep(1.5)
+  box = driver$findElement(using = "xpath", value = "//*[@id='keyword']")
+  box$sendKeysToElement(list(foodKey[k]))
+  Sys.sleep(1.5)
+  box1 = driver$findElement(using = "xpath", value = "//*[@id='topSchFrm']/p/button")
+  box1$clickElement()
+  Sys.sleep(1.5)
+  URL = driver$getCurrentUrl()
+  box5 = driver$findElement(using = "xpath", value = "//*[@id='BodyBase']/div[4]/div[6]/dl/dt/span[2]")
+  page = box5$getElementText()[[1]][1]%>%
+    str_split(.,"/")
+  page = page[[1]][2]
+  for (j in 1:page) {
+    driver$navigate(str_replace_all(URL[[1]][1],"curPage=1",paste0("curPage=",j)))
+    Sys.sleep(1.5)
+    for (i in 1:30) {
+      box2 = tryCatch(driver$findElement(using = "xpath", value = paste0("//*[@id='BodyBase']/div[4]/div[5]/div[4]/ul/li[",i,"]/a/img")),error = function(e){NULL})
+      tryCatch(box2$clickElement(),error = function(e){NULL})
+      Sys.sleep(1)
+      box3 = tryCatch(driver$findElement(using = "xpath", value = "//*[@id='productForm']/div[2]/ul/li[2]/span"),error = function(e){NULL})
+      tryCatch(box3$clickElement(),error = function(e){NULL})
+      Sys.sleep(1)
+      box4 = tryCatch(driver$findElement(using = "xpath", value = "//*[@id='productForm']/div[2]/div[7]"),error = function(e){NULL})
+      RawData = tryCatch(box4$getElementText(),error = function(e){NULL})
+      Sys.sleep(0.5)
+
+      DataText = tryCatch(data.frame(製造廠名稱 = str_split(str_extract_all(RawData[[1]],"製造廠.*")[[1]][1],"：")[[1]][2],
+                                     製造廠地址 = str_split(str_extract_all(RawData[[1]],"製造廠.*")[[1]][2],"：")[[1]][2],
+                                     製造廠電話 = str_split(str_extract_all(RawData[[1]],"製造廠.*")[[1]][3],"：")[[1]][2],
+                                     食品業者登錄字號 =str_split(str_extract_all(RawData[[1]],"食品業者登錄字號：.*")[[1]][1],"：")[[1]][2])
+                          ,error = function(e){NULL})
+      ResultText = rbind(ResultText,DataText)
+      driver$navigate(str_replace_all(URL[[1]][1],"curPage=1",paste0("curPage=",j)))
+      Sys.sleep(1)
+    }
+    print(j)
+  }
+}
+
+FinalText = unique(ResultText) %>%
+  filter(.,製造廠名稱!="NA")
+
+FinalText = FinalText[!duplicated(FinalText[,"食品業者登錄字號"]),]
+FinalText = FinalText[!duplicated(FinalText[,"製造廠名稱"]),]
+
+# write.csv(FinalText,"C:\\Users\\alanxu\\Desktop\\網路平台業者食品風險\\momo蛋糕清單0714.csv",row.names=F)
