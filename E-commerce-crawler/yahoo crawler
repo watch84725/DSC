@@ -1,0 +1,83 @@
+#java -jar selenium-server-standalone-3.11.0.jar
+
+library(RSelenium)
+
+remDr <- remoteDriver(remoteServerAddr = "localhost", port = 4444, browserName = "chrome")
+# 打開瀏覽器
+remDr$open()
+
+remDr$navigate("https://tw.buy.yahoo.com/search/product?p=%E8%9B%8B%E7%B3%95&pg=1")
+
+#################################################################################
+aa <- remDr$findElement(using = "xpath",value = '/html/body/div[1]/div[1]/div[2]/div/div/div[2]/div/div[2]/ul/li[1]')
+aa$clickElement()
+last_height = 0
+repeat {
+  remDr$executeScript("window.scrollTo(0,document.body.scrollHeight);",
+                      list(remDr$findElement("css", "body")))
+  Sys.sleep(2)
+  new_height = remDr$executeScript("return document.body.scrollHeight",
+                                   list(remDr$findElement("css", "body")))
+  if(unlist(last_height) == unlist(new_height)) {
+    break
+  } else {
+    last_height = new_height
+  }
+}
+bb <- remDr$findElement(using = "css selector",value = '.ProductHtmlDetail__spec___pa_3- > table:nth-child(1)')
+bb$getElementText()
+remDr$goBack()
+##########################################################################################
+kk <- data.frame(a=0)
+for (k in 1:30) {
+  remDr$open()
+  remDr$navigate(paste0("https://tw.buy.yahoo.com/search/product?p=%E8%9B%8B%E7%B3%95&pg=",k))
+  Sys.sleep(0.5)
+for (i in 1:60){
+  print(i)
+  aa <- tryCatch(remDr$findElement(using = "xpath",value = paste0('/html/body/div[1]/div[1]/div[2]/div/div/div[2]/div/div[2]/ul/li[',i,']/a/span/span[1]'))
+                 ,error = function(e){NULL})
+  tryCatch(aa$clickElement(),error = function(e){NULL})
+  Sys.sleep(1.5)
+  dd <- remDr$findElement( "css","body")
+  for (j in 1:10) {
+    dd$sendKeysToElement(list(key = "page_down"))
+    Sys.sleep(0.15)
+  }
+  Sys.sleep(0.5)
+  bb <- tryCatch(remDr$findElement(using = "css selector",value = 'div.ProductHtmlDetail__dangerouslyWrapper___1k1YQ:nth-child(3)')
+                 ,error = function(e){NULL})
+  gg <- tryCatch(bb$getElementText(),error = function(e){NULL})
+  kk <- rbind(kk,gg)
+  remDr$goBack()
+  Sys.sleep(1)
+}
+  }
+library(stringr)
+
+text <- data.frame(廠商名稱 = str_split(str_extract_all(kk[2,1],"廠商名稱.*")[1][1]," ")[[1]][2],
+                   廠商地址 = str_split(str_extract_all(kk[2,1],"廠商地址.*")[1][1]," ")[[1]][2],
+                   食品業者登錄字號 = str_split(str_extract_all(kk[2,1],"食品業者登錄字號.*")[1][1],"：")[[1]][2]
+                   )
+text_1 <- 0
+text_2 <- 0
+for (i in 1:1795) {
+  text <- data.frame(廠商名稱 = str_split(str_extract_all(kk[i,1],"廠商名稱.*")[1][1]," ")[[1]][2],
+                         廠商地址 = str_split(str_extract_all(kk[i,1],"廠商地址.*")[1][1]," ")[[1]][2],
+                         食品業者登錄字號 = str_split(str_extract_all(kk[i,1],"食品業者登錄字號.*")[1][1]," ")[[1]][2]
+  )
+  text_1 <- rbind(text_1,text)
+}
+for (i in 1:1795) {
+  text <- data.frame(廠商名稱 = str_split(str_extract_all(kk[i,1],"廠商名稱.*")[1][1],"：")[[1]][2],
+                         廠商地址 = str_split(str_extract_all(kk[i,1],"廠商地址.*")[1][1],"：")[[1]][2],
+                         食品業者登錄字號 = str_split(str_extract_all(kk[i,1],"食品業者登錄字號.*")[1][1],"：")[[1]][2]
+  )
+  text_2 <- rbind(text_2,text)
+}
+text_2 <- na.exclude(text_2) %>% unique()
+text_fi <- rbind(text_1,text_2)
+text_fi <- unique(text_fi)
+kk <- unique(kk)
+
+# write.csv(text_fi,"C:\\Users\\DSC-2019-002\\Desktop\\廠商名稱.csv",row.names = F)
