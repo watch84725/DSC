@@ -1,0 +1,684 @@
+library(RODBC); library(magrittr); library(stringr); library(scales); 
+library(xlsx); library(dplyr); library(tibble); library(lubridate);library(DMwR)
+
+conn <- odbcConnect("FDA")
+SqlData <- sqlQuery(conn, "
+set nocount on
+set ansi_warnings off
+drop table if exists #檢驗表
+drop table if exists #報單分數
+drop table if exists #模型現行閾值
+drop table if exists #轉換報單分數格式
+drop table if exists #偽陰性總表
+drop table if exists #其他案件總表
+drop table if exists #進口商累積偽陰性件數T_A
+drop table if exists #進口商累積偽陰性件數T_B
+drop table if exists #進口商累積偽陰性件數T_C
+drop table if exists #進口商累積偽陰性件數
+drop table if exists #test
+drop table if exists #test1
+
+select a.APPL_NO, b.PROD_SEQ, c.INSP_ITEM_NAME, c.INSP_RESULT
+into #檢驗表
+from [IFI_TBGV].[dbo].[ITT0001_DB]a
+left join [IFI_TBGV].[dbo].[ITT0002_DB]b on a.ID = b.ITT0001_ID
+inner join [IFI_TBGV].[dbo].[ITT0004_DB]c on a.ID = c.ITT0001_ID
+
+select distinct
+	   a.ElasticNet機率 as ElasticNet,
+	   a.GBM機率 as GBM,
+	   a.決策樹C50機率 as 決策樹C50,
+	   a.決策樹CART機率 as 決策樹CART,
+	   a.樸素貝氏分類機率 as 樸素貝氏分類,
+	   a.隨機森林機率 as 隨機森林,
+	   a.羅吉斯迴歸機率 as 羅吉斯迴歸,
+	   a.更新日期,
+	   b.APPL_REGNO as 報驗義務人統一編號,
+	   b.APPL_REGCNAME as 報驗義務人,
+	   b.APPL_NO as 簽審核准許可文件編號, 
+  case b.RULE_INSP_MODE when 11 then '一般抽中批'
+			when 12 then '一般查核'
+			when 13 then '一般未抽中批'
+			when 21 then '加強抽中批'
+			when 22 then '加強查核'
+			when 23 then '加強未抽中批'
+			when 31 then '逐批查驗'
+			when 41 then '政策查驗'
+			when 51 then '一般監視'
+			when 61 then '加強監視'
+			else b.RULE_INSP_MODE
+			end as 應檢驗方式,
+		b.INSP_RESULT as 批檢驗結果,
+		convert(datetime, convert(char(8), APPL_DATE+19110000), 112) as 受理日期, 
+		convert(datetime, substring(APPL_TIME, 1, 2) + ':' + substring(APPL_TIME, 3, 2) + ':' +substring(APPL_TIME, 5, 2)) as 受理時間,
+		convert(datetime, convert(char(8), APPL_DATE+19110000), 112) + convert(datetime, substring(APPL_TIME, 1, 2) + ':' + substring(APPL_TIME, 3, 2) + ':' +substring(APPL_TIME, 5, 2)) as 受理日期時間,
+		--c.CUST_ITEM as 報單項次,
+		c.PROD_COUNTRY as 生產國別, 
+		c.GROP_ID as 產品中分類,
+		case when b.INSP_RESULT is NULL then NULL
+				when sum(case when (d.INSP_ITEM_NAME like '%標示%' or (d.INSP_ITEM_NAME like '%原子%' and c.PROD_COUNTRY = 'JP')) then 0 
+				when d.INSP_RESULT = 'N' and b.INSP_RESULT = 'N' then 1
+				when d.INSP_RESULT = 'Y' then 0
+			end) over (partition by a.簽審核准許可文件編號) >0 then 'N'
+		else 'Y'
+		end as 抽驗批結果_排除輻射標示,
+		e.PROD_NAME as 製造廠名稱
+into #報單分數
+from(select left(a.update_time,10) as 更新日期 , *
+	 from [FRBDM2].[dbo].[邊境檢驗_預測結果_閾值用] a)a
+left join [IFI_TBGV].[dbo].[IMF0001_DB] b on a.簽審核准許可文件編號 = b.APPL_NO
+left join [IFI_TBGV].[dbo].[IMF0002_DB] c on b.ID = c.IMF0001_ID
+left join #檢驗表 d on d.APPL_NO = a.簽審核准許可文件編號
+left join [IFI_TBGV].[dbo].[IMF0003_DB] e on e.APPL_NO = a.簽審核准許可文件編號
+where 更新日期 = '2020-10-28' and c.GROP_ID = 'FC32' and b.RULE_INSP_MODE in ('11','13','21','23') 
+
+select *,left(b.應檢驗方式,2) as 應檢驗方式新
+into #轉換報單分數格式
+from(select *
+	 from #報單分數 a)a
+unpivot( 分數 for 模型 in (ElasticNet,GBM,決策樹C50,決策樹CART,樸素貝氏分類,隨機森林,羅吉斯迴歸)
+)b
+
+select *
+into #模型現行閾值
+from(select a.來源, a.產品中分類, a.產品中分類名稱, a.開始日期,left(a.開始日期,10) as 開始日起新 , a.模型, a.閾值, a.應檢驗方式
+	 from [FRBDM2].[dbo].[邊境_閾值設定檔] a)a
+where 開始日起新 = '10 28 2020' and 產品中分類 = 'FC32'
+
+
+select *, iif(投票數 >= 4, 1, 0) as 模型是否建議抽
+into #偽陰性總表
+from(
+select a.簽審核准許可文件編號, a.受理日期時間, a.更新日期, b.開始日期, a.應檢驗方式, a.產品中分類, a.報驗義務人統一編號, a.報驗義務人, a.製造廠名稱,
+	   a.批檢驗結果 , a.抽驗批結果_排除輻射標示, a.生產國別, a.模型, a.分數, b.閾值,
+sum(iif(分數 >= 閾值 ,1,0)) over (partition by a.簽審核准許可文件編號) as 投票數
+from #轉換報單分數格式 a
+left join #模型現行閾值 b on a.產品中分類 = b.產品中分類 and a.應檢驗方式新 = b.應檢驗方式 and a.模型 = b.模型)a
+where 抽驗批結果_排除輻射標示 <> 'NULL' and 抽驗批結果_排除輻射標示 = 'N' and iif(投票數 >= 4, 1, 0) = '0'
+
+
+select a.簽審核准許可文件編號, a.受理日期時間, a.應檢驗方式, a.產品中分類, a.報驗義務人統一編號, a.報驗義務人, a.製造廠名稱,
+	   a.抽驗批結果_排除輻射標示, a.生產國別, iif(投票數 >= 4, 1, 0) as 模型是否建議抽, null as 進口商累積偽陰性件數
+into #其他案件總表
+from(
+select a.簽審核准許可文件編號, a.受理日期時間, a.更新日期, b.開始日期, a.應檢驗方式, a.產品中分類, a.報驗義務人統一編號, a.報驗義務人, a.製造廠名稱,
+	   a.批檢驗結果 , a.抽驗批結果_排除輻射標示, a.生產國別, a.模型, a.分數, b.閾值,
+sum(iif(分數 >= 閾值 ,1,0)) over (partition by a.簽審核准許可文件編號) as 投票數
+from #轉換報單分數格式 a
+left join #模型現行閾值 b on a.產品中分類 = b.產品中分類 and a.應檢驗方式新 = b.應檢驗方式 and a.模型 = b.模型)a
+where 抽驗批結果_排除輻射標示 <> 'NULL' and 抽驗批結果_排除輻射標示 = 'N' and iif(投票數 >= 4, 1, 0) = '1'
+union 
+select a.簽審核准許可文件編號, a.受理日期時間, a.應檢驗方式, a.產品中分類, a.報驗義務人統一編號, a.報驗義務人, a.製造廠名稱,
+	   a.抽驗批結果_排除輻射標示, a.生產國別, iif(投票數 >= 4, 1, 0) as 模型是否建議抽, null as 進口商累積偽陰性件數
+from(
+select a.簽審核准許可文件編號, a.受理日期時間, a.更新日期, b.開始日期, a.應檢驗方式, a.產品中分類, a.報驗義務人統一編號, a.報驗義務人, a.製造廠名稱,
+	   a.批檢驗結果 , a.抽驗批結果_排除輻射標示, a.生產國別, a.模型, a.分數, b.閾值,
+sum(iif(分數 >= 閾值 ,1,0)) over (partition by a.簽審核准許可文件編號) as 投票數
+from #轉換報單分數格式 a
+left join #模型現行閾值 b on a.產品中分類 = b.產品中分類 and a.應檢驗方式新 = b.應檢驗方式 and a.模型 = b.模型)a
+where 抽驗批結果_排除輻射標示 <> 'NULL' and 抽驗批結果_排除輻射標示 = 'Y' and iif(投票數 >= 4, 1, 0) = '0'
+union
+select a.簽審核准許可文件編號, a.受理日期時間, a.應檢驗方式, a.產品中分類, a.報驗義務人統一編號, a.報驗義務人, a.製造廠名稱,
+	   a.抽驗批結果_排除輻射標示, a.生產國別, iif(投票數 >= 4, 1, 0) as 模型是否建議抽, null as 進口商累積偽陰性件數
+from(
+select a.簽審核准許可文件編號, a.受理日期時間, a.更新日期, b.開始日期, a.應檢驗方式, a.產品中分類, a.報驗義務人統一編號, a.報驗義務人, a.製造廠名稱,
+	   a.批檢驗結果 , a.抽驗批結果_排除輻射標示, a.生產國別, a.模型, a.分數, b.閾值,
+sum(iif(分數 >= 閾值 ,1,0)) over (partition by a.簽審核准許可文件編號) as 投票數
+from #轉換報單分數格式 a
+left join #模型現行閾值 b on a.產品中分類 = b.產品中分類 and a.應檢驗方式新 = b.應檢驗方式 and a.模型 = b.模型)a
+where 抽驗批結果_排除輻射標示 <> 'NULL' and 抽驗批結果_排除輻射標示 = 'Y' and iif(投票數 >= 4, 1, 0) = '1'
+
+select *,rank() over(partition by a.[報驗義務人統一編號] order by a.受理日期時間, a.[簽審核准許可文件編號]) as 進口商累積偽陰性件數
+INTO #進口商累積偽陰性件數T_A
+from(select distinct a.[簽審核准許可文件編號], a.抽驗批結果_排除輻射標示, a.[報驗義務人統一編號], a.受理日期時間
+	 from #偽陰性總表 a)a
+where a.抽驗批結果_排除輻射標示 = 'N' --and a.報驗義務人統一編號 = '22454883'
+order by a.[報驗義務人統一編號], a.[受理日期時間]
+
+select distinct [報驗義務人統一編號], [受理日期時間], [進口商累積偽陰性件數]
+INTO #進口商累積偽陰性件數T_B
+from #進口商累積偽陰性件數T_A
+
+select distinct a.[報驗義務人統一編號],a.[受理日期時間] as 受理日期起, b.[受理日期時間] as 受理日期迄, b.[進口商累積偽陰性件數]-1 as 進口商累積偽陰性件數
+INTO #進口商累積偽陰性件數T_C
+from #進口商累積偽陰性件數T_B as a
+left join #進口商累積偽陰性件數T_B as b on a.[報驗義務人統一編號]=b.[報驗義務人統一編號]
+where a.[進口商累積偽陰性件數]=b.[進口商累積偽陰性件數]-1
+union
+select distinct [報驗義務人統一編號], '2011/1/1' as 受理日期起 ,min([受理日期時間]) as 受理日期迄,0 as 進口累積抽驗不合格數
+from #進口商累積偽陰性件數T_B
+group by [報驗義務人統一編號]
+union
+select distinct[報驗義務人統一編號], max([受理日期時間]) as 受理日期起 , '9999/12/31' as 受理日期迄, max([進口商累積偽陰性件數]) as 進口累積抽驗不合格數
+from #進口商累積偽陰性件數T_B
+group by [報驗義務人統一編號]
+
+select distinct * 
+into #進口商累積偽陰性件數
+from #進口商累積偽陰性件數T_C
+where [受理日期起] != [受理日期迄]
+
+
+select distinct a.簽審核准許可文件編號, a.受理日期時間, a.應檢驗方式, a.產品中分類, a.報驗義務人統一編號, a.報驗義務人, a.製造廠名稱, a.抽驗批結果_排除輻射標示,
+	   a.生產國別, a.模型是否建議抽, b.進口商累積偽陰性件數
+into #test1
+from #偽陰性總表 a
+left join #進口商累積偽陰性件數 b on a.報驗義務人統一編號 = b.報驗義務人統一編號
+where a.受理日期時間 = b.受理日期迄 --and a.報驗義務人統一編號 in ('22454883','16008534')
+
+
+select distinct a.簽審核准許可文件編號, a.受理日期時間, a.應檢驗方式, a.產品中分類, a.報驗義務人統一編號, a.報驗義務人, a.製造廠名稱, a.抽驗批結果_排除輻射標示,
+	   a.生產國別, a.模型是否建議抽, b.進口商累積偽陰性件數
+into #test
+from #偽陰性總表 a
+left join #進口商累積偽陰性件數 b on a.報驗義務人統一編號 = b.報驗義務人統一編號
+--left join #其他案件總表 c on a.受理日期時間 <= c.受理日期時間
+where a.受理日期時間 = b.受理日期迄 --and a.報驗義務人統一編號 in ('22454883','16008534')
+union
+select distinct a.簽審核准許可文件編號, a.受理日期時間, a.應檢驗方式, a.產品中分類, a.報驗義務人統一編號, a.報驗義務人, a.製造廠名稱, a.抽驗批結果_排除輻射標示,
+	   a.生產國別, a.模型是否建議抽, a.進口商累積偽陰性件數
+from #其他案件總表 a
+--where a.報驗義務人統一編號 in('22454883','16008534')
+order by a.報驗義務人統一編號, a.受理日期時間
+
+DROP TABLE IF EXISTS #彙整
+SELECT *, NULL as 進口商累積偽陰性件數1 INTO #彙整 FROM #test WHERE 模型是否建議抽 = 20
+
+
+DROP TABLE IF EXISTS #test11
+select ROW_NUMBER() OVER (ORDER BY 報驗義務人統一編號 ASC) as 報驗義務人編號, 報驗義務人統一編號
+into #test11
+from(select distinct 報驗義務人統一編號
+	 from #test1)a
+
+DECLARE @TableCount1 INT
+	, @WhileTableCount1 INT = 1
+	--
+
+SET @TableCount1 = (select COUNT(報驗義務人統一編號) from #test11)
+
+WHILE @WhileTableCount1 <= @TableCount1
+BEGIN
+
+	DROP TABLE IF EXISTS #test10
+	select ROW_NUMBER() OVER (partition by 報驗義務人統一編號 ORDER BY 受理日期時間 ASC) AS rownumber, 受理日期時間, 進口商累積偽陰性件數, 報驗義務人統一編號
+	into #test10
+	from #test1 
+	where 報驗義務人統一編號 = (select 報驗義務人統一編號 from #test11 where @WhileTableCount1 = 報驗義務人編號)
+
+	INSERT INTO #test10
+	SELECT 0 AS rownumber, CONVERT(DATE, '1900-01-01') AS 受理日期時間, NULL AS 進口商累積偽陰性件數, NULL as 報驗義務人統一編號 
+
+	DECLARE @TableCount INT
+		, @WhileTableCount INT = 1
+		--
+		, @num INT
+		, @受理日期時間迄 DATETIME
+		, @受理日期時間起 DATETIME
+
+	SET @TableCount	 = (SELECT COUNT(rownumber) FROM #test10)-1
+
+	WHILE @WhileTableCount <= @TableCount
+	BEGIN
+
+		SELECT @num = 進口商累積偽陰性件數, 
+		@受理日期時間迄 = 受理日期時間 FROM #test10 WHERE rownumber = @WhileTableCount 
+		SELECT @受理日期時間起 = 受理日期時間 FROM #test10 WHERE rownumber = @WhileTableCount-1
+
+
+		INSERT INTO #彙整
+		SELECT *, @num AS 進口商累積偽陰性件數1
+		FROM #test
+		WHERE 受理日期時間 <= @受理日期時間迄 AND 受理日期時間 > @受理日期時間起 and 報驗義務人統一編號 = (select 報驗義務人統一編號 from #test11 where @WhileTableCount1 = 報驗義務人編號)
+
+		SET @WhileTableCount = @WhileTableCount +1
+
+	END
+
+	INSERT INTO #彙整
+	select *, (SELECT MAX(進口商累積偽陰性件數)+1 FROM #test10) AS 進口商累積偽陰性件數1 from #test
+	WHERE 受理日期時間 > (select 受理日期時間 from #test10 WHERE 進口商累積偽陰性件數=(SELECT MAX(進口商累積偽陰性件數) FROM #test10) )
+	       and 報驗義務人統一編號 = (select 報驗義務人統一編號 from #test11 where @WhileTableCount1 = 報驗義務人編號)
+	
+	SET @WhileTableCount1 = @WhileTableCount1 +1
+END
+
+select DISTINCT a.受理日期時間,a.應檢驗方式 as 應檢驗方式舊, a.模型是否建議抽, a.抽驗批結果_排除輻射標示 as class, a.進口商累積偽陰性件數1, b.GDP, b.GDP成長率, b.人類發展指數, b.台幣完稅價格, b.全球糧食安全指標,
+				b.全球糧食安全指標_支付能力, b.全球糧食安全指標_供應能力, b.全球糧食安全指標_品質及安全, b.合法權利指數, b.每公斤台幣完稅價格, b.是否有商標,
+				b.區域政治風險指數, b.國際警訊產品, b.清廉印象指數, b.報關行累積中文標示及外觀不合格數, b.報關行累積扣押放棄退運批數, b.報關行累積抽驗不合格數,
+				b.報關行累積抽驗數, b.報關行累積書審不合格數, b.報關行累積貨品號列數, b.報關行累積報單數, b.報關行累積報驗註銷數, b.報關行累積進口商家數, 
+				b.報關行累積總中分類數, b.報驗人類別, b.登記地區別, b.進口商中分類累積報單數, b.進口商交貨未準時申報率, b.進口商有無稅籍資料, b.進口商食品業營業項目數,
+				b.進口商累積平均台幣完稅價格, b.進口商累積扣押放棄退運批數, b.進口商累積抽驗不合格數, b.進口商累積報單數, b.製造廠累積進口商家數, b.製造廠輸入天數變化率,
+				b.稽查GHP初查次數, b.應檢驗方式, b.總淨重公斤數, b.簽審核准許可文件編號, b.關別gp, b.關區
+--into #總表
+from (select DISTINCT *
+	  from #彙整 a 
+	  union 
+	  select *,0 as 進口商累積偽陰性件數1
+	  from #其他案件總表) a
+inner join FRBDM2.dbo.邊境檢驗_週_茶類_11_未放入_全報單 b on a.簽審核准許可文件編號 = b.簽審核准許可文件編號 
+")
+
+#a = SqlData %>% filter(抽驗批結果_排除輻射標示=="N") %>% select(簽審核准許可文件編號)
+NewData = SqlData
+NewData$進口商累積偽陰性件數1 = as.factor(NewData$進口商累積偽陰性件數1)
+NewData$是否有商標 = as.factor(NewData$是否有商標)
+NewData$國際警訊產品 = as.factor(NewData$國際警訊產品)
+NewData$報驗人類別 = as.factor(NewData$報驗人類別)
+NewData$進口商有無稅籍資料 = as.factor(NewData$進口商有無稅籍資料)
+NewData$應檢驗方式 = as.factor(NewData$應檢驗方式)
+NewData$關別gp = as.factor(NewData$關別gp)
+NewData$class = ifelse(NewData$class=="Y",0,1)
+NewData$class = as.factor(NewData$class)
+NewData$受理日期時間 = as.Date(NewData$受理日期時間)
+NewData$受理年度 = substr(NewData$受理日期時間,1,4)
+TrainData = NewData[which(NewData$受理年度 %in% c(2011:2018)), ] %>% .[,c(4:44,46,47)]
+TrainData1 = SMOTE(class~.,TrainData,perc.over = 2000,perc.unde=100)
+ValidData = NewData[which(NewData$受理年度 == 2019), ] %>%.[,c(4:44,46,47)]
+TestData = NewData[which(NewData$受理年度 == 2020), ] %>%.[,c(4:44,46,47)]
+
+TrainData2 = NewData[which(NewData$受理年度 %in% c(2011:2018)), ] %>% .[,c(4,6:44,46,47)]
+TrainData3 = SMOTE(class~.,TrainData2,perc.over = 2000,perc.unde=100)
+ValidData1 = NewData[which(NewData$受理年度 == 2019), ] %>%.[,c(4,6:44,46,47)]
+TestData1 = NewData[which(NewData$受理年度 == 2020), ] %>%.[,c(4,6:44,46,47)]
+
+table(TrainData1$class)
+
+TrainData2_S = TrainData1
+#### h2o Model Strat ####
+library(h2o)
+h2o.shutdown(prompt = TRUE)
+h2o.no_progress()
+h2o.init(nthreads = -1, #-1表示使用你機器上所有的核
+         max_mem_size = "64G")
+#### RF ####
+h2oTrain = TrainData1
+names(h2oTrain) = seq(1, ncol(h2oTrain))
+colnames(h2oTrain)[1] = "class"
+y = "class" ; x = setdiff(names(h2oTrain), y)
+Train2_S_h2o = as.h2o(h2oTrain)
+
+names(ValidData) = seq(1, ncol(ValidData))
+h2oValid = ValidData
+colnames(h2oValid)[1] = "class"
+Valid_h2o = as.h2o(h2oValid)
+
+h2oTest = TestData
+names(h2oTest) = seq(1, ncol(h2oTest))
+colnames(h2oTest)[1] = "class"
+Test_h2o = as.h2o(h2oTest)
+options(scipen = 5)
+
+RF_Model = h2o.randomForest(
+  x = x, 
+  y = y, 
+  training_frame = Train2_S_h2o, 
+  seed = 826
+)
+
+RF_Test_Pre = predict(RF_Model, Test_h2o) %>% as.data.frame() %>% .$p1
+
+Raw_TestData = NewData %>% filter(受理年度== 2020)
+Total_TestData = cbind(Raw_TestData,RF_Test_Pre)
+
+RF_Result = Total_TestData %>% filter(class=="1") %>% filter(模型是否建議抽 == 0)
+
+test = data.frame(受理日期 = RF_Result$受理日期時間,
+                  簽審 = RF_Result$簽審核准許可文件編號,
+                  應檢驗方式 = RF_Result$應檢驗方式舊,
+                  RF分數 = RF_Result$RF_Test_Pre) 
+
+#write.csv(test,'c:\\Users\\alanxu\\Desktop\\test_RF.csv')
+
+
+h2oTrain1 = TrainData3
+names(h2oTrain1) = seq(1, ncol(h2oTrain1))
+colnames(h2oTrain1)[1] = "class"
+y1 = "class" ; x1 = setdiff(names(h2oTrain1), y1)
+Train2_S_h2o1 = as.h2o(h2oTrain1)
+
+names(TestData1) = seq(1, ncol(TestData1))
+h2oTest1 = TestData1
+colnames(h2oTest1)[1] = "class"
+Test_h2o1 = as.h2o(h2oTest1)
+
+
+RF_Model1 = h2o.randomForest(
+  x = x1, 
+  y = y1, 
+  training_frame = Train2_S_h2o1, 
+  seed = 826
+)
+
+RF_Test_Pre1 = predict(RF_Model1, Test_h2o1) %>% as.data.frame() %>% .$p1
+
+Raw_TestData1= NewData %>% filter(受理年度== 2020)
+Total_TestData1 = cbind(Raw_TestData1,RF_Test_Pre1)
+
+RF_Result1 = Total_TestData1 %>% filter(class=="1") %>% filter(模型是否建議抽 == 0)
+#test1 = data.frame(簽審 = RF_Result1$簽審核准許可文件編號, RF分數 = RF_Result1$RF_Test_Pre1) 
+#write.csv(test1,'c:\\Users\\alanxu\\Desktop\\test_RF1.csv')
+
+#### Logistic ####
+GLM_Model = h2o.glm(
+  x = x, 
+  y = y, 
+  training_frame = Train2_S_h2o, 
+  family = "binomial",
+  seed = 826
+)
+GLM_Test_Pre = predict(GLM_Model, Test_h2o) %>% as.data.frame() %>% .$p1
+
+GLM_Model1 = h2o.glm(
+  x = x1, 
+  y = y1, 
+  training_frame = Train2_S_h2o1, 
+  family = "binomial",
+  seed = 826
+)
+GLM_Test_Pre1 = predict(GLM_Model1, Test_h2o1) %>% as.data.frame() %>% .$p1
+
+#### NB ####
+NB_Model = h2o.naiveBayes(
+  x = x, 
+  y = y, 
+  training_frame = Train2_S_h2o, 
+  seed = 826
+)
+NB_Test_Pre = predict(NB_Model, Test_h2o) %>% as.data.frame() %>% .$p1
+
+NB_Model1 = h2o.glm(
+  x = x1, 
+  y = y1, 
+  training_frame = Train2_S_h2o1, 
+  family = "binomial",
+  seed = 826
+)
+NB_Test_Pre1 = predict(NB_Model1, Test_h2o1) %>% as.data.frame() %>% .$p1
+
+#### CART ####
+
+library(rpart)
+set.seed(826)
+CART_Model = rpart(
+  class ~ .,
+  data = h2oTrain
+)
+
+CART_Test_Pre = predict(CART_Model, h2oTest, type = "prob")[,2]
+
+set.seed(826)
+CART_Model1 = rpart(
+  class ~ .,
+  data = h2oTrain1
+)
+
+CART_Test_Pre1 = predict(CART_Model1, h2oTest1, type = "prob")[,2]
+
+#### C50 ####
+library(C50)
+library(partykit)
+set.seed(826)
+C50_Model = C5.0(
+  x = h2oTrain[,c(2:27,29:43)],
+  y = h2oTrain[,1],
+  data = h2oTrain
+)
+plot(C50_Model1)
+party(C50_Model)
+C5.0.graphviz(C50_Model)
+library(graphics)
+
+install.packages()
+library()
+C50_Test_Pre = predict(C50_Model, h2oTest[,c(2:27,29:43)], type = "prob")[, 2]
+C50_Model1 = C5.0(
+  x = h2oTrain1[,c(2:26,28:42)],
+  y = h2oTrain1[,1],
+  data = h2oTrain1
+)
+C50_Test_Pre1 = predict(C50_Model1, h2oTest1[,c(2:26,28:42)], type = "prob")[, 2]
+
+#### GBM ####
+GBM_Model = h2o.gbm(
+  x = x,
+  y = y,
+  training_frame = Train2_S_h2o
+)
+GBM_Test_Pre = predict(GBM_Model, Test_h2o) %>% as.data.frame() %>% .$p1
+
+GBM_Model1 = h2o.gbm(
+  x = x1,
+  y = y1,
+  training_frame = Train2_S_h2o1
+)
+GBM_Test_Pre1 = predict(GBM_Model1, Test_h2o1) %>% as.data.frame() %>% .$p1
+
+#### ElasticNet ####
+library(glmnet)
+
+EN_Train = model.matrix(class~.,data = h2oTrain)[,-1]
+EN_Test = model.matrix(class~.,data = h2oTest)[,-1]
+str(h2oTrain)
+
+EN_Model = glmnet(
+  x = EN_Train,
+  y = h2oTrain[,1],
+  family="binomial",
+  alpha =0.5
+)
+EN_Test_Pre = predict(EN_Model, EN_Test, type = "response") %>% data.frame() %>% .$s81
+
+EN_Train1 = model.matrix(class~.,data = h2oTrain1)[,-1]
+EN_Test1 = model.matrix(class~.,data = h2oTest1)[,-1]
+
+EN_Model1 = glmnet(
+  x = EN_Train1,
+  y = h2oTrain1[,1],
+  family="binomial",
+  alpha =0.5
+)
+EN_Test_Pre1 = predict(EN_Model1, EN_Test1, type = "response") %>% data.frame() %>% .$s80
+
+Result = data.frame(受理日期 = Raw_TestData$受理日期時間,
+                    簽審核准許可文件編號 = Raw_TestData$簽審核准許可文件編號,
+                    應檢驗方式 = Raw_TestData$應檢驗方式舊,
+                    抽驗不合格 = Raw_TestData$class,
+                    模型是否建議抽 = Raw_TestData$模型是否建議抽,
+                    RF分數舊 = RF_Test_Pre1,
+                    RF分數新 = RF_Test_Pre,
+                    LG分數舊 = GLM_Test_Pre1,
+                    LG分數新 = GLM_Test_Pre,
+                    NB分數舊 = NB_Test_Pre1,
+                    NB分數新 = NB_Test_Pre,
+                    CART分數舊 = CART_Test_Pre1,
+                    CART分數新 = CART_Test_Pre,
+                    C50分數舊 = C50_Test_Pre1,
+                    C50分數新 = C50_Test_Pre,
+                    GBM分數舊 = GBM_Test_Pre1,
+                    GBM分數新 = GBM_Test_Pre,
+                    EN分數舊 = EN_Test_Pre1,
+                    EN分數新 = EN_Test_Pre) %>%  filter(抽驗不合格== 1) %>% filter(模型是否建議抽 == 0)
+write.csv(Result,"c:\\Users\\alanxu\\Desktop\\偽陰性修改後分數.csv",row.names = F)
+?write.csv
+#TrainData1 = TrainData[, 5:12]
+TrainData2_S = TrainData[, c(2:45)]
+
+library(smotefamily)
+library(magrittr)
+
+#TrainData1_S = SMOTE(TrainData1[, -1], TrainData1[, 1]) %>% .$data
+#TrainData1_S$class %<>% as.factor()
+
+#TrainData2_S = SMOTE(TrainData2[, -1], TrainData2[, 1]) %>% .$data
+#TrainData2_S$class %<>% as.factor()
+
+#### h2o Model Strat ####
+library(h2o)
+h2o.shutdown(prompt = TRUE)
+h2o.no_progress()
+h2o.init(nthreads = -1, #-1表示使用你機器上所有的核
+         max_mem_size = "64G")
+
+y = "class" ; x = setdiff(names(TrainData2_S), "2")
+
+h2oTrain = TrainData[, c(3:46)]
+colnames(h2oTrain)[1] = "class"
+Train2_S_h2o = as.h2o(h2oTrain)
+
+names(ValidData) = seq(1, ncol(ValidData))
+h2oValid = ValidData[, c(3:46)]
+colnames(h2oValid)[1] = "class"
+Valid_h2o = as.h2o(h2oValid)
+
+names(TestData) = seq(1, ncol(TestData))
+h2oTest = TestData[, c(3:46)]
+colnames(h2oTest)[1] = "class"
+Test_h2o = as.h2o(h2oTest)
+
+options(digits = 10)
+options(scipen = 5)
+
+#### Random Forest ####
+
+RF_Model = h2o.randomForest(
+  x = x, 
+  y = y, 
+  training_frame = Train2_S_h2o, 
+  seed = 826
+)
+
+RF_Valid_Pre = predict(RF_Model, Valid_h2o) %>% as.data.frame()
+RF_Test_Pre = predict(RF_Model, Test_h2o) %>% as.data.frame()
+
+#### Logistic Regression ####
+
+GLM_Model = h2o.glm(
+  x = x, 
+  y = y, 
+  training_frame = Train2_S_h2o, 
+  family = "binomial",
+  seed = 826
+)
+
+GLM_Valid_Pre = predict(GLM_Model, Valid_h2o) %>% as.data.frame() %>% .$p1
+GLM_Test_Pre = predict(GLM_Model, Test_h2o) %>% as.data.frame() %>% .$p1
+
+#### Naive Bayes ####
+
+NB_Model = h2o.naiveBayes(
+  x = x, 
+  y = y, 
+  training_frame = Train2_S_h2o, 
+  seed = 826
+)
+
+NB_Valid_Pre = predict(NB_Model, Valid_h2o) %>% as.data.frame() %>% .$p1
+NB_Test_Pre = predict(NB_Model, Test_h2o) %>% as.data.frame() %>% .$p1
+
+#### CART ####
+library(rpart)
+set.seed(826)
+CART_Model = rpart(
+  class ~ .,
+  data = TrainData2_S
+)
+
+CART_Valid_Pre = predict(CART_Model, h2oValid, type = "prob")[, 2]
+CART_Test_Pre = predict(CART_Model, h2oTest, type = "prob")[, 2]
+
+#### C5.0 ####
+library(C50)
+set.seed(826)
+C50_Model = C5.0(
+  class ~ .,
+  data = TrainData2_S
+)
+
+C50_Valid_Pre = predict(C50_Model, h2oValid, type = "prob")[, 2]
+C50_Test_Pre = predict(C50_Model, h2oTest, type = "prob")[, 2]
+
+
+
+#### Output ####
+
+Valid_Output = cbind(RF_Valid_Pre, GLM_Valid_Pre) %>%
+  cbind(., NB_Valid_Pre) %>%
+  cbind(., CART_Valid_Pre) %>%
+  cbind(., C50_Valid_Pre) %>%
+  as.data.frame()
+
+Valid_Output$簽審核准許可文件編號 = ValidData$`1`
+Valid_Output$檢驗結果 = ValidData$`5`
+Valid_Output$檢驗結果 = ifelse(Valid_Output$檢驗結果 == 1, "N", "Y")
+Valid_Output$Median = apply(Valid_Output[, 1:5], 1, function(x){median(x)})
+
+library(DSC)
+RF_Opt = OptCutFind(Valid_Output$RF_Valid_Pre, Valid_Output$檢驗結果, 1, 0, 99, 0.01)
+GLM_Opt = OptCutFind(Valid_Output$GLM_Valid_Pre, Valid_Output$檢驗結果, 1, 0, 99, 0.01)
+NB_Opt = OptCutFind(Valid_Output$NB_Valid_Pre, Valid_Output$檢驗結果, 1, 0, 99, 0.01)
+CART_Opt = OptCutFind(Valid_Output$CART_Valid_Pre, Valid_Output$檢驗結果, 1, 0, 99, 0.01)
+C50_Opt = OptCutFind(Valid_Output$C50_Valid_Pre, Valid_Output$檢驗結果, 1, 0, 99, 0.01)
+Median_Opt = OptCutFind(Valid_Output$Median, Valid_Output$檢驗結果, 1, 0, 99, 0.01)
+
+
+Test_Output = cbind(RF_Test_Pre, GLM_Test_Pre) %>%
+  cbind(., NB_Test_Pre) %>%
+  cbind(., CART_Test_Pre) %>%
+  cbind(., C50_Test_Pre) %>%
+  as.data.frame()
+
+Test_Output$簽審核准許可文件編號 = TestData$`1`
+Test_Output$Median = apply(Test_Output[, 1:5], 1, function(x){median(x)})
+Test_Output$檢驗結果 = TestData$`5`
+Test_Output$檢驗結果 = ifelse(Test_Output$檢驗結果 == 1, "N", "Y")
+
+Test_Output$RF_OptCut = ifelse(Test_Output$RF_Test_Pre > RF_Opt, "N", "Y")
+Test_Output$GLM_OptCut = ifelse(Test_Output$GLM_Test_Pre > GLM_Opt, "N", "Y")
+Test_Output$NB_OptCut = ifelse(Test_Output$NB_Test_Pre > NB_Opt, "N", "Y")
+Test_Output$CART_OptCut = ifelse(Test_Output$CART_Test_Pre > CART_Opt, "N", "Y")
+Test_Output$C50_OptCut = ifelse(Test_Output$C50_Test_Pre > C50_Opt, "N", "Y")
+
+library(stringr)
+Test_Output$Vote5_OptCut = apply(Test_Output[, 9:13], 1, function(x){
+  paste0(x) %>% str_detect(., "N") %>% as.numeric() %>% sum()
+})
+
+Test_Output$預測結果 = ifelse(Test_Output$Vote5_OptCut > 2 , "N", "Y")
+
+library(caret)
+confusionMatrix(table(Test_Output$預測結果, Test_Output$檢驗結果))[[4]][5:7]
+
+write.xlsx(Test_Output, "Test_Output_20200731.xlsx", row.names = F)
+
+
+
+ValidData1 = cbind(ValidData, predict(CART1, ValidData)[, 2])
+ValidData1$檢驗不合格 = ifelse(ValidData1$檢驗不合格 == 1, "N", "Y")
+ValidData1$預測結果 = ifelse(ValidData1$`predict(CART1, ValidData)[, 2]` > 0.5, 1, 0)
+
+ValidData2 = cbind(ValidData, predict(CART2, ValidData)[, 2])
+ValidData2$檢驗不合格 = ifelse(ValidData2$檢驗不合格 == 1, "N", "Y")
+library(DSC)
+OptCutFind(ValidData2$`predict(CART2, ValidData)[, 2]`, ValidData2$檢驗不合格, 1, 0, 99, 0.01)
+ValidData2$預測結果 = ifelse(ValidData2$`predict(CART2, ValidData)[, 2]` > 0.1, "N", "Y")
+
+table(ValidData1$預測結果)
+table(ValidData2$預測結果)
+
+table(ValidData1$預測結果, ValidData1$檢驗不合格)
+table(ValidData2$預測結果, ValidData2$檢驗不合格)
+
+plot(density(ValidData1$`predict(CART1, ValidData)[, 2]`))
+plot(density(ValidData2$`predict(CART2, ValidData)[, 2]`))
+
+TestData2 = cbind(TestData, predict(CART2, TestData)[, 2])
+TestData2$檢驗不合格 = ifelse(TestData2$檢驗不合格 == 1, "N", "Y")
+TestData2$預測結果 = ifelse(TestData2$`predict(CART2, TestData)[, 2]` > 0.1, "N", "Y")
+confusionMatrix(table(TestData2$預測結果, TestData2$檢驗不合格))[[4]][5:7]
+nrow(TestData)
+
+write.xlsx(TestData2, "TestData2.xlsx", row.names = F)
+
+
+
