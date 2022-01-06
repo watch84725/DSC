@@ -1,0 +1,58 @@
+library(RSelenium)
+library(stringr)
+driver = remoteDriver(remoteServerAddr = "localhost", port = 4444, browserName = "chrome")
+driver$open()
+foodkey = c("蛋糕","提拉米蘇","糕點","餅乾","糖果","布丁","點心","泡芙","奶酥","吐司","蛋塔",
+            "麵包","瑞士捲","桃核酥","起酥捲","三明治","乳酪","奶油","起司","奶凍捲","太陽餅","鳳梨酥",
+            "餡餅","檸檬塔","麻糬","米香","饅頭","包子","銀絲卷")
+FinalURL = NULL
+for (k in 1:length(foodkey)) {
+  driver$navigate("https://shopping.pchome.com.tw/")
+  box = driver$findElement(using = "xpath", value = "//*[@id='keyword']")
+  box$sendKeysToElement(list(foodkey[k]))
+  box1 = driver$findElement(using = "xpath", value = "//*[@id='doSearch']")
+  box1$clickElement()
+  Sys.sleep(2)
+  box3 = tryCatch(driver$findElement(using = "xpath", value = "//*[@id='cate_DBAE']/a"),
+                  error = function(e){NULL})
+  tryCatch(box3$clickElement(),error = function(e){NULL})
+  Sys.sleep(2)
+  last_height = 0
+  repeat {
+    driver$executeScript("window.scrollTo(0,document.body.scrollHeight);",
+                         list(driver$findElement("css", "body")))
+    Sys.sleep(2)
+    new_height = driver$executeScript("return document.body.scrollHeight",
+                                      list(driver$findElement("css", "body")))
+    if(unlist(last_height) == unlist(new_height)) {
+      break
+    } else {
+      last_height = new_height
+    }
+  }
+  Sys.sleep(1.5)
+  box2 = driver$findElements(using = "css selector", value = ".prod_name a")
+  URL = lapply(box2,function(x){x$getElementAttribute("href")})
+  FinalURL = append(FinalURL,URL)
+}
+ResultText = NULL
+for (i in 1:length(FinalURL)) {
+  driver$navigate(FinalURL[[i]][[1]])
+  Sys.sleep(1)
+  box4 = tryCatch(driver$findElement(using = "xpath", value = "//*[@id='StmtContainer']/dl"),
+                  error = function(e){NULL})
+  RawData = tryCatch(box4$getElementText(),error = function(e){NULL})
+  DataText = 
+  tryCatch(data.frame(
+    廠商名稱 = str_split(str_extract_all(RawData[[1]],"廠商名稱.*")[[1]][1]," ")[[1]][2],
+    廠商電話 = str_split(str_extract_all(RawData[[1]],"廠商電話.*")[[1]][1]," ")[[1]][2],
+    廠商地址 = str_split(str_extract_all(RawData[[1]],"廠商地址.*")[[1]][1]," ")[[1]][2],
+    食品業者登錄字號 = str_split(str_extract_all(RawData[[1]],"食品業者登錄字號.*")[[1]][1]," ")[[1]][2]),
+    error = function(e){NULL})
+  ResultText = rbind(ResultText,DataText)
+  print(i)
+}
+FinalText = ResultText[!duplicated(ResultText[,"食品業者登錄字號"]),]
+FinalText = FinalText[!duplicated(FinalText[,"廠商名稱"]),]
+
+# write.csv(FinalText,"C:\\Users\\DSC-2019-005\\Desktop\\PChome爬蟲.csv",row.names = F)
