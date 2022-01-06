@@ -1,0 +1,962 @@
+library(RODBC); library(magrittr); library(stringr); library(scales); library(openxlsx); 
+library(plyr); library(dplyr); library(tidyr); library(tibble); library(lubridate);
+library(tidyverse); library(doParallel); library(foreach); library(smbinning); 
+library(DMwR); library(h2o); library(glmnet); library(C50); library(rpart); library(caret)
+library(future.apply)
+library(PRROC)
+
+setwd('C:\\Users\\timhuang\\Desktop\\微量檢出')
+
+# 檔案名稱
+dataName <- paste0('BPI微量檢出風險核判模型評估_', format(Sys.time(), '%Y%m%d%H%M'), '.xlsx')
+
+
+
+# SQL Data
+conn <- odbcConnect('FDA')
+SqlLines <- readLines('微量檢出建模評估.sql')
+SqlData <- sqlQuery(conn, paste(SqlLines, collapse='\n'))
+
+
+
+RawData <- SqlData %>%
+  filter(!str_detect(應檢驗方式修, '未抽中|排除|查核')) %>%
+  filter(!str_detect(檢驗項目, '原子塵|現場查核')) 
+
+RawData$檢出細項名稱判斷 <- ifelse(is.na(RawData$檢驗項目備註),1,0)
+                       
+  
+# 檢出微量
+Q <- RawData %>%
+  filter(檢出萊劑 == '檢出萊劑') %>%
+  select(APPL_NO, 檢出萊劑) %>%
+  unique()
+# 檢出乙型
+W <- RawData %>%
+  filter(檢出乙型 == '檢出乙型') %>%
+  select(APPL_NO, 檢出乙型) %>%
+  unique()
+
+E <- RawData %>%
+  select(APPL_NO, CUST_ITEM, 受理日期時間, 批檢驗結果名稱, 應檢驗方式, 批檢驗結果名稱修, 應檢驗方式修) %>%
+  unique()
+
+
+InputData <- E %>%
+  merge(Q, by = 'APPL_NO', all.x = TRUE) %>%
+  merge(W, by = 'APPL_NO', all.x = TRUE) 
+rm(Q, W, E)
+
+colnames(InputData)[which(names(InputData) == "APPL_NO")] <- "簽審核准許可文件編號"
+colnames(InputData)[which(names(InputData) == "CUST_ITEM")] <- "報單項次"
+
+InputData1 <- InputData[, !(names(InputData) %in% c("受理日期時間", "批檢驗結果名稱", "應檢驗方式", "應檢驗方式修"))]
+InputData1$檢出萊劑 <- ifelse(is.na(InputData1$檢出萊劑), 0, 1)
+InputData1$檢出乙型 <- ifelse(is.na(InputData1$檢出乙型), 0, 1)
+InputData1$批檢驗結果名稱修 <- ifelse(as.character(InputData1$批檢驗結果名稱修) == '合格', 0, 1)
+
+# 檢出萊劑及乙型 要包含其他不合格結果
+InputData1$檢出萊劑 <- ifelse((InputData1$檢出萊劑+InputData1$批檢驗結果名稱修) >= 1, 1, 0)
+InputData1$檢出乙型 <- ifelse((InputData1$檢出乙型+InputData1$批檢驗結果名稱修) >= 1, 1, 0)
+
+
+
+# SQL 抓取報單特徵因子
+PreData <- sqlQuery(conn, "SELECT *
+                            FROM [FRBDM2].dbo.[邊境檢驗_週_調味醬分析大表_全報單]")
+
+# 125特徵因子
+nvar_list <- as.vector(sqlQuery(conn, "select 變數名稱 from [FRBDM2].dbo.邊境報驗分析變數 where 變數類型='連續'")[['變數名稱']])
+cvar_list <- as.vector(sqlQuery(conn, "select 變數名稱 from [FRBDM2].dbo.邊境報驗分析變數 where 變數類型='類別'")[['變數名稱']])
+
+cvar_list <- cvar_list[-which(!cvar_list %in% colnames(PreData))] %>%# 移除"黑名單產品","黑名單進口商"
+  .[! . %in% "登記地區別"]
+
+
+
+PreData1 <- InputData1 %>%
+  merge(PreData[, c(nvar_list, cvar_list, '受理日期', "簽審核准許可文件編號", "報單項次")],
+        by = c("簽審核准許可文件編號", "報單項次"), all.x = TRUE)
+PreData1$受理日期 <- PreData1$受理日期 %>% as.character() %>% as.Date()
+
+
+
+
+
+# 訓練資料
+TrainingData <- PreData1 %>%
+  filter(受理日期 <= '2018-12-31')
+# 測試資料
+TestingData <- PreData1 %>%
+  filter(受理日期 >= '2019-01-01')
+
+
+
+############################################# 
+################## Binning ################## 
+############################################# 
+
+relabel_num<-function(data){
+  data1<-data 
+  if(sum(colnames(data1) %in% c('應檢驗方式'))>=1){
+    
+    data1 <- data1 %>% 
+      mutate(
+        應檢驗方式=ifelse(應檢驗方式 %in% c('一般未抽中批','一般抽中批','一般查核','一般監視'),1,
+                          ifelse(應檢驗方式 %in% c('加強未抽中批','加強抽中批','加強監視','加強查核'),2,3)))
+  }
+  if(sum(colnames(data1) %in% c('關別'))>=1){
+    data1 <- data1 %>% 
+      mutate(
+        關別=ifelse(關別=='台中關',1,
+                    ifelse(關別=='台北關',2,
+                             ifelse(關別=='高雄關',3,4))))
+  }
+  if(sum(colnames(data) %in% c('報驗人類別'))>=1){
+    data1 <- data1 %>% 
+      mutate(
+        報驗人類別=ifelse(報驗人類別=='公司',1,
+                          ifelse(報驗人類別=='其它',2,3)))
+  }
+  if(sum(colnames(data1) %in% c('輸出入方式'))>=1){
+    data1 <- data1 %>% 
+      mutate(
+        輸出入方式=ifelse(輸出入方式=='空運',1,2))
+  }
+  if(sum(colnames(data1) %in% c('登記地點'))>=1){
+    data1 <- data1 %>% 
+      mutate(
+        登記地點=ifelse(登記地點=='中',1,
+                        ifelse(登記地點=='北',2,
+                                   ifelse(登記地點=='南',3,4))))
+  }
+  return(data1)
+}
+
+
+
+s_result<-function(checo){
+  
+  # 訓練bin
+  train = TrainingData[which(!names(TrainingData) %in% mode[-checo])]
+  colnames(train)[which(names(train) == mode[checo])] <- '檢驗不合格'
+  
+  
+  # nvar_list<-as.vector(sqlQuery(conn, "select 變數名稱 from [FRBDM2].dbo.邊境報驗分析變數 where 變數類型='連續'")[['變數名稱']])
+  
+  index<-lapply(apply(train[,nvar_list],2,unique),length)
+  L5<-colnames(train[,nvar_list])[which(index >=2 & index<5)]
+  nvar_G5_list<-nvar_list[-which(nvar_list%in%L5)]
+  # nvar_G5_list<-nvar_G5_list%>%filter(變數類型=='連續')
+  n_sig_list<-c()
+  cut_ref_output<-c()
+  bins_iv <- c()
+  
+  
+  kk=6
+  for(kk in 1:length(nvar_G5_list)) {
+    # i=1
+    bins<-eval(parse(text=paste0("smbinning(train,'檢驗不合格','",nvar_G5_list[kk],"')")))
+    bins_iv$var[kk] <- nvar_G5_list[kk]
+    bins_iv$iv[kk] <- ifelse(is.list(bins), bins$iv, NA)
+    
+    # bins
+    if(is.list(bins)==TRUE){ # 判斷是否回傳"No significant splits"
+      bin_names<-bins$ivtable$Cutpoint[1:(nrow(bins$ivtable)-2)]
+      bin_names<-gsub('<= ','LE',bin_names)
+      bin_names<-gsub('> ','GT',bin_names)
+      b<-c(-Inf,bins$cuts,Inf)
+      print(b)
+      
+      
+      cut_ref<-as.data.frame(cbind(mode=checo,
+                                   變數名稱=nvar_G5_list[kk],
+                                   cut=paste(b,collapse = ','),
+                                   name=paste(bin_names,collapse=',')))
+      cut_ref_output<-rbind(cut_ref_output, cut_ref)
+      
+      bin_breaks<-cut_ref %>%
+        dplyr::filter(mode == checo & 變數名稱 == nvar_G5_list[kk]) %>%
+        dplyr::select(cut) %>%
+        unlist() %>%
+        as.character() %>%
+        strsplit(.,split=',') %>%
+        unlist() %>%
+        as.numeric()
+      
+      bin_names<-cut_ref %>%
+        dplyr::filter(mode == checo & 變數名稱 == nvar_G5_list[kk]) %>%
+        dplyr::select(name) %>%
+        unlist() %>%
+        as.character() %>%
+        strsplit(.,split=',') %>%
+        unlist()    
+      
+      # 對training set塞入切點
+      eval(parse(text=paste0('train$',nvar_G5_list[kk], '<- cut(train$',nvar_G5_list[kk],',breaks = bin_breaks, labels =  bin_names)')))
+      
+      n_sig_list<-c(n_sig_list,nvar_G5_list[kk])
+      print(nvar_G5_list[kk])
+    }else{
+      print(bins)
+      print(nvar_G5_list[kk])}
+  }
+  bins_iv <- bins_iv %>% as.data.frame()
+  bins_iv1 <- bins_iv %>% 
+    filter(!is.na(iv))
+  
+  cut_ref_output <- cbind(cut_ref_output,update_time=Sys.time())
+  
+  openxlsx::write.xlsx(cut_ref_output, paste0('邊境_',mode[checo],'_連續變數切點.xlsx'))
+  
+  
+  
+  
+  # cvar_list<-as.vector(sqlQuery(conn, "select 變數名稱 from [FRBDM2].dbo.邊境報驗分析變數 where 變數類型='類別'")[['變數名稱']])
+  # cvar_list <- cvar_list[-which(!cvar_list %in% colnames(PreData))] # 移除"黑名單產品","黑名單進口商"
+  
+  # if(class %in% c('其他A','其他B','其他C','其他D')){
+  #   cvar_list<-c(cvar_list,'產品中分類')
+  # }
+  
+  ct_result<-c()
+  i=15
+  for(i in 1 : length(cvar_list)) {
+    
+    print(cvar_list[i])
+    t_tb<-data.frame(檢驗不合格=as.factor(ifelse(train$檢驗不合格==1,'是','否')),
+                          t_var=as.factor(eval(parse(text=paste0('train$',cvar_list[i])))))
+    
+    if(length(levels(t_tb$t_var))>=2){
+      ct<-table(t_tb$t_var,t_tb$檢驗不合格)
+      p_value<-fisher.test(ct,simulate.p.value = TRUE)$p.value
+      ct_result<-rbind(ct_result,cbind(cvar_list[i],p_value))
+    }
+    paste(i)
+  }
+  
+  
+  ## 類別顯著變數清單
+  c_sig_list<-ct_result[which(ct_result[,2]!='NaN'),]
+  c_sig_list<-ct_result[which(as.numeric(as.character(ct_result[,2]))<=0.05),1]
+  c_sig_list<-c_sig_list[!grepl("[1-9]",c_sig_list)]
+  
+  
+  #################################################共通自動化分組
+  ## 計算顯著的類別變數長度
+  lvleng<-c()
+  i=7
+  for(i in 1:length(c_sig_list)) {
+    lvleng[i]<-nlevels(eval(parse(text=paste0('train$',c_sig_list[i]))))
+  }
+  ## 長度為6或以上才需分組
+  gp_list<-as.vector(c_sig_list[which((lvleng>=6)&(!c_sig_list %in% c('受理季別','受理年度','受理月份')))])
+  
+  ## 以整體不合格率平均作為分組依據
+  cut_p<-prop.table(table(train$檢驗不合格))[2]
+  if(length(gp_list)>=1){
+    for(i in 1 : length(gp_list)) {
+      print(gp_list[i])
+      
+      ct<-table(eval(parse(text=paste0('train$',gp_list[i]))),train$檢驗不合格)
+      p_ct<-as.data.frame(round(prop.table(ct,1),10))
+      cut_level<-p_ct[which(p_ct$Var2==1 & p_ct$Freq>=cut_p),c('Var1')]
+      
+      str_t<-paste0('train<-train %>% mutate(',gp_list[i],'gp=ifelse(',gp_list[i],' %in% as.vector(cut_level),1,0))')
+      eval(parse(text=str_t))
+    }
+    ## 有分組的類別變數清單
+    cat1<-paste0(gp_list,'gp')                    ######### 改了
+    ## 無分組的類別變數清單
+    cat2<-c_sig_list[(!c_sig_list %in% gp_list) & (!c_sig_list %in% c('受理季別','受理年度','受理月份'))]
+    colname_trans<-c(cat1, cat2, n_sig_list)
+    all_sig_list<-c('檢驗不合格',cat1, cat2, n_sig_list, L5)
+  }else{
+    
+    ## 無分組的類別變數清單
+    cat2<-c_sig_list[(!c_sig_list %in% gp_list) & (!c_sig_list %in% c('受理季別','受理年度','受理月份'))]
+    colname_trans<-c(cat2, n_sig_list)
+    all_sig_list<-c('檢驗不合格', cat2, n_sig_list, L5)
+  }
+  
+  
+  
+  train<-data.frame(train)
+  #處理需要轉成factor變數
+  for( i in 1:length(colname_trans)) {
+    eval(parse(text=paste0("train$",colname_trans[i],"<-as.factor(train$",colname_trans[i],")")))
+  }
+  
+  
+  train1<-train[,all_sig_list]
+  
+  
+  cl = makeCluster(8)
+  registerDoParallel(cl)
+  train1<-train1[complete.cases(train1),]
+  x <- model.matrix(檢驗不合格~ ., train1)
+  x<-x[,sort(colnames(x))]
+  y<-train1$檢驗不合格
+  model=cv.glmnet(x,y,family="binomial",type.logistic="modified.Newton",parallel=T, alpha=1, lambda=exp(seq(log(0.001), log(5), length.out=500)))
+  
+  
+  colname<-colnames(train1)
+  # colname<-colname[which(colname%in%(var_list$變數名稱))]
+  final_name<-c()
+  for(i in 1:length(colname)){
+    text<-paste0('train1$',colname[i])
+    value<-eval(parse(text=text))
+    final_name<-rbind(final_name,cbind(colname[i],paste0(colname[i],as.character(unique(value)))))
+  }
+  
+  #
+  #
+  coeff<-as.matrix(coef(model, s=min(model$lambda)))
+  select_var<-row.names(coeff)[which(abs(coeff)>=0.001)]
+  #
+  select_var<-unique(final_name[which(final_name[,2]%in%select_var),1])
+  select_var<-c(select_var,'檢驗不合格')
+  
+  
+  stopCluster(cl)
+  
+  
+  
+  ##### 存入風險因子評估結果
+  select_var_r1<-gsub(c('gp'),'',select_var)
+  vars_all<-as.data.frame(cbind(mode=mode[checo],c(nvar_list,cvar_list)))
+  colnames(vars_all)<-c('Y結果','風險因子')
+  # vars_all$逐步選入<-ifelse(vars_all$風險因子 %in% select_var_r2,'是','否')
+  vars_all$單變數選入<-ifelse(vars_all$風險因子 %in% c(c_sig_list, n_sig_list),'是','否')
+  vars_all$多變數選入<-ifelse(vars_all$風險因子 %in% select_var,'是','否')
+  
+  openxlsx::write.xlsx(vars_all, paste0('邊境_',mode[checo],'_風險因子評估結果.xlsx'))
+  
+  
+  
+  train2<-train1 %>%
+    dplyr::select(select_var) %>%
+    cbind(簽審核准許可文件編號=train$簽審核准許可文件編號,
+                    報單項次=train$報單項次)
+  
+  train2<-relabel_num(train2)
+  
+  
+  # 測試bin
+  test = TestingData[which(!names(TestingData) %in% mode[-checo])]
+  colnames(test)[which(names(test) == mode[checo])] <- '檢驗不合格'
+  
+  
+  var_unify<-function(test){
+    out_data<-test
+    ## 類別資料分組
+    if(length(gp_list)>=1){
+      for(i in 1 : length(gp_list)) {
+        ## 用train資料分組模式進行imp_data資料分組
+        tb<-as.data.frame(table(eval(parse(text=paste0('train$',gp_list[i]))),eval(parse(text=paste0('train$',gp_list[i],'gp')))))
+        cut_level<-tb[which(tb$Var2==1 & tb$Freq>=1),c('Var1')]
+        
+        str_t<-paste0('out_data<-out_data %>% mutate(',gp_list[i],'gp=ifelse(',gp_list[i],' %in% as.vector(cut_level),1,0))')
+        eval(parse(text=str_t))
+      }
+    }
+    
+    return(out_data)
+  }
+  
+  
+  
+  
+  cut_var<-as.vector(cut_ref_output$變數名稱)
+  for(i in 1:length(cut_var)) {
+    bin_breaks<-cut_ref_output %>%
+      filter(mode==checo & 變數名稱==cut_var[i]) %>%
+      dplyr::select(cut) %>%
+      unlist() %>%
+      as.character() %>%
+      strsplit(.,split=',') %>%
+      unlist() %>%
+      as.numeric()
+    
+    bin_names<-cut_ref_output %>%
+      filter(mode==checo & 變數名稱==cut_var[i]) %>%
+      dplyr::select(name) %>%
+      unlist() %>%
+      as.character() %>%
+      strsplit(.,split=',') %>%
+      unlist()    
+    
+    # 對testing sets塞入切點
+    eval(parse(text=paste0('test$',cut_var[i], '<- cut(test$',cut_var[i],',breaks = bin_breaks, labels =  bin_names)')))
+    
+    # print(cut_var[i])
+    # print(bin_breaks)
+    # print(bin_names)
+    
+  }
+  
+  test1<-var_unify(test)
+  
+  
+  test2<-test1 %>%
+    var_unify() %>%
+    dplyr::select(select_var) %>%
+    relabel_num() %>%
+    cbind(簽審核准許可文件編號=test$簽審核准許可文件編號,
+                    報單項次=test$報單項次)
+  
+  
+  TrainingData_binning <<- train2
+  TestingData_binning <<- test2
+  
+}
+
+
+
+############################################# 
+################### SMOTE ################### 
+############################################# 
+
+goSMOTE <- function(x, y){
+  x <- x %>% lapply(as.factor) %>% as.data.frame()
+  y <- y %>% lapply(as.factor) %>% as.data.frame()
+  
+  
+  xGO <- select(x, -c("簽審核准許可文件編號", "報單項次"))
+  # yGO <- select(y, -c("簽審核准許可文件編號", "報單項次"))
+  yGO <- y
+  
+  if ( '登記地區別' %in% colnames(xGO) ) {
+    xGO <- select(xGO, -"登記地區別")
+    yGO <- select(yGO, -"登記地區別")
+  }
+  
+  # Test 套用 Train 的 factors
+  transcol <- setdiff(colnames(yGO), c("簽審核准許可文件編號", "報單項次"))
+  for (i in transcol) {
+    eval(parse(text=paste0("yGO$", i, " <- factor(yGO$", i, 
+                           ", levels = levels(xGO$", i, "))")
+    ))
+  }
+  
+  
+  ### SMOTE
+  # x$檢驗不合格 <- as.factor(x$檢驗不合格)
+  set.seed(myseed)
+  TrainingData_SMOTE = SMOTE(檢驗不合格~., data = xGO, perc.over = 2000, perc.under = 250) #3:7
+  
+  print( # 原始比例
+    paste0(
+      '原始比例：', nrow(filter(xGO, 檢驗不合格 == 0)) / nrow(filter(xGO, 檢驗不合格 == 1))
+    )
+  ) 
+  
+  print(# SMOTE比例
+    paste0(
+      'SMOTE比例：', nrow(filter(TrainingData_SMOTE, 檢驗不合格 == 0)) / nrow(filter(TrainingData_SMOTE, 檢驗不合格 == 1))
+    )
+  ) 
+  
+  
+  TrainingData_SMOTE <<- TrainingData_SMOTE
+  TestingData_binningGO <<- yGO
+}
+
+
+
+############################################# 
+################### Model ################### 
+############################################# 
+
+sevenModel <- function(checo, rosberg){
+  
+  vettel <- select(rosberg, -c("簽審核准許可文件編號", "報單項次"))
+  
+  ### Modeling
+  h2oTrain <- checo
+  names(h2oTrain) = seq(1, ncol(h2oTrain)) 
+  colnames(h2oTrain)[ncol(h2oTrain)] = "class"
+  
+  h2oTest <- vettel
+  names(h2oTest) = seq(1, ncol(h2oTest))  
+  colnames(h2oTest)[ncol(h2oTest)] = "class"
+  
+  ncol(h2oTrain)
+  y <- 'class' ; x <- setdiff(names(h2oTrain), y)
+  
+  train.h2o <- as.h2o(h2oTrain)
+  test.h2o <- as.h2o(h2oTest)
+  
+  
+  
+  # Elastic Net
+  cat('Elastic Net Modeling \n')
+  EN.Train = model.matrix(檢驗不合格~ ., checo)
+  
+  set.seed(myseed)
+  EN.final = cv.glmnet(
+    x = EN.Train, 
+    y = checo$檢驗不合格,
+    family="binomial",
+    type.logistic="modified.Newton",
+    nfolds=3,
+    parallel=)
+  
+  # GBM
+  cat('GBM Modeling \n')
+  h2o.gbm.final <- h2o.gbm(
+    x = x,
+    y = y,
+    training_frame = train.h2o,
+    nfolds = 3,
+    fold_assignment = "Modulo",
+    keep_cross_validation_predictions = TRUE,
+    seed = myseed
+  )
+  
+  # C5.0
+  cat('C5.0 Modeling \n')
+  set.seed(myseed)
+  C50.final = C5.0(檢驗不合格 ~ ., data = checo)
+  
+  # CART
+  cat('CART Modeling \n')
+  set.seed(myseed)
+  CART.final = rpart(檢驗不合格 ~ ., data = checo)
+  
+  # Naive Bayes 
+  cat('Naive Bayes Modeling \n')
+  h2o.NB.final = h2o.naiveBayes(
+    x = x, 
+    y = y, 
+    training_frame = train.h2o,
+    nfolds = 3,
+    fold_assignment = "Modulo",
+    keep_cross_validation_predictions = TRUE,
+    seed = myseed
+  )
+  
+  # Random Forest
+  cat('Random Forest Modeling \n')
+  h2o.RF.final = h2o.randomForest(
+    x = x, 
+    y = y, 
+    training_frame = train.h2o, 
+    nfolds = 3,
+    fold_assignment = "Modulo",
+    keep_cross_validation_predictions = TRUE,
+    seed = myseed
+  )
+  
+  # Logistic Regression
+  cat('Logistic Regression Modeling \n')
+  h2o.glm.final = h2o.glm(
+    x = x, 
+    y = y, 
+    training_frame = train.h2o,
+    nfolds = 3,
+    fold_assignment = "Modulo",
+    keep_cross_validation_predictions = TRUE,
+    family = "binomial",
+    lambda_search = TRUE,
+    seed = myseed
+  )
+  
+  
+  
+  ### Predict
+  value.predict <- NULL
+  # Elastic Net
+  cat('Elastic Net Predicting \n')
+  EN.Test = model.matrix(檢驗不合格~ ., vettel)
+  
+  EN.predict = predict(EN.final, EN.Test, s = "lambda.min", type = "response") %>% as.data.frame() %>% .$`1`
+  
+  EN.temp <- cbind(as.character(rosberg$簽審核准許可文件編號), as.character(rosberg$報單項次), "EN", EN.predict) %>% data.frame() 
+  names(EN.temp) = c("簽審核准許可文件編號", "報單項次", "模型", "預測機率值")
+  
+  value.predict <- value.predict %>% rbind(EN.temp)
+  
+  # EN.predict.R = ifelse(EN.predict >= 0.5, 1, 0) %>% as.factor() 
+  # EN.report = cbind(as.character(EN.predict.R), as.character(vettel$檢驗不合格)) %>% data.frame() 
+  # names(EN.report) = c("預測","實際")
+  # confusionMatrix(table(EN.report), positive = "1")$byClass[c('Balanced Accuracy', 'Sensitivity', 'Pos Pred Value', 'F1')]
+  
+  # GBM
+  cat('GBM Predicting \n')
+  GBM.predict = predict(h2o.gbm.final, test.h2o) %>% as.data.frame() %>% .$p1
+  
+  GBM.temp <- cbind(as.character(rosberg$簽審核准許可文件編號), as.character(rosberg$報單項次), "GBM", GBM.predict) %>% data.frame() 
+  names(GBM.temp) = c("簽審核准許可文件編號", "報單項次", "模型", "預測機率值")
+  
+  value.predict <- value.predict %>% rbind(GBM.temp)
+  
+  # GBM.predict.R = ifelse(GBM.predict >= 0.5, 1, 0) %>% as.factor() 
+  # GBM.report = cbind(as.character(GBM.predict.R), as.character(h2oTest$class)) %>% data.frame() 
+  # names(GBM.report) = c("預測","實際")
+  # confusionMatrix(table(GBM.report), positive = "1")$byClass[c('Balanced Accuracy', 'Sensitivity', 'Pos Pred Value', 'F1')]
+  
+  # C5.0
+  cat('C5.0 Predicting \n')
+  C50.predict = predict(C50.final, vettel, type = "prob")[, 2] %>%
+    as.numeric()
+  
+  C50.temp <- cbind(as.character(rosberg$簽審核准許可文件編號), as.character(rosberg$報單項次), "C50", C50.predict) %>% data.frame() 
+  names(C50.temp) = c("簽審核准許可文件編號", "報單項次", "模型", "預測機率值")
+  
+  value.predict <- value.predict %>% rbind(C50.temp)
+  
+  # C50.predict.R = ifelse(C50.predict >= 0.5, 1, 0) %>% as.factor() 
+  # C50.report = cbind(as.character(C50.predict.R), as.character(vettel$檢驗不合格)) %>% data.frame() 
+  # names(C50.report) = c("預測","實際")
+  # confusionMatrix(table(C50.report), positive = "1")$byClass[c('Balanced Accuracy', 'Sensitivity', 'Pos Pred Value', 'F1')]
+  
+  # CART
+  cat('CART Predicting \n')
+  CART.predict = predict(CART.final, vettel, type = "prob")[, 2] %>%
+    as.numeric()
+  
+  CART.temp <- cbind(as.character(rosberg$簽審核准許可文件編號), as.character(rosberg$報單項次), "CART", CART.predict) %>% data.frame() 
+  names(CART.temp) = c("簽審核准許可文件編號", "報單項次", "模型", "預測機率值")
+  
+  value.predict <- value.predict %>% rbind(CART.temp)
+  
+  # CART.predict.R = ifelse(CART.predict >= 0.5, 1, 0) %>% as.factor() 
+  # CART.report = cbind(as.character(CART.predict.R), as.character(vettel$檢驗不合格)) %>% data.frame() 
+  # names(CART.report) = c("預測","實際")
+  # confusionMatrix(table(CART.report), positive = "1")$byClass[c('Balanced Accuracy', 'Sensitivity', 'Pos Pred Value', 'F1')]
+  
+  # NaiveBayes 
+  cat('Naive Bayes Predicting \n')
+  NB.predict = predict(h2o.NB.final, test.h2o) %>% as.data.frame() %>% .$p1
+  
+  NB.temp <- cbind(as.character(rosberg$簽審核准許可文件編號), as.character(rosberg$報單項次), "NB", NB.predict) %>% data.frame() 
+  names(NB.temp) = c("簽審核准許可文件編號", "報單項次", "模型", "預測機率值")
+  
+  value.predict <- value.predict %>% rbind(NB.temp)
+  
+  # NB.predict.R = ifelse(NB.predict >= 0.5, 1, 0) %>% as.factor() 
+  # NB.report = cbind(as.character(NB.predict.R), as.character(h2oTest$class)) %>% data.frame() 
+  # names(NB.report) = c("預測","實際")
+  # confusionMatrix(table(NB.report), positive = "1")$byClass[c('Balanced Accuracy', 'Sensitivity', 'Pos Pred Value', 'F1')]
+  
+  # Random Forest
+  cat('Random Forest Predicting \n')
+  RF.predict = predict(h2o.RF.final, test.h2o) %>% as.data.frame() %>% .$p1
+  
+  RF.temp <- cbind(as.character(rosberg$簽審核准許可文件編號), as.character(rosberg$報單項次), "RF", RF.predict) %>% data.frame() 
+  names(RF.temp) = c("簽審核准許可文件編號", "報單項次", "模型", "預測機率值")
+  
+  value.predict <- value.predict %>% rbind(RF.temp)
+  
+  # RF.predict.R = ifelse(RF.predict >= 0.5, 1, 0) %>% as.factor() 
+  # RF.report = cbind(as.character(RF.predict.R), as.character(h2oTest$class)) %>% data.frame() 
+  # names(RF.report) = c("預測","實際")
+  # confusionMatrix(table(RF.report), positive = "1")$byClass[c('Balanced Accuracy', 'Sensitivity', 'Pos Pred Value', 'F1')]
+  
+  # Logistic Regression
+  cat('Logistic Regression Predicting \n')
+  GLM.predict = predict(h2o.glm.final, test.h2o) %>% as.data.frame() %>% .$p1
+  
+  GLM.temp <- cbind(as.character(rosberg$簽審核准許可文件編號), as.character(rosberg$報單項次), "GLM", GLM.predict) %>% data.frame() 
+  names(GLM.temp) = c("簽審核准許可文件編號", "報單項次", "模型", "預測機率值")
+  
+  value.predict <- value.predict %>% rbind(GLM.temp)
+  
+  # GLM.predict.R = ifelse(GLM.predict >= 0.5, 1, 0) %>% as.factor() 
+  # GLM.report = cbind(as.character(GLM.predict.R), as.character(h2oTest$class)) %>% data.frame() 
+  # names(GLM.report) = c("預測","實際")
+  # confusionMatrix(table(GLM.report), positive = "1")$byClass[c('Balanced Accuracy', 'Sensitivity', 'Pos Pred Value', 'F1')]
+  
+  ### Voting
+  # cat('Voting \n')
+  # vote.report = data.frame(ElasticNet = EN.predict.R %>% as.character() %>% as.integer(),
+  #                          GBM = GBM.predict.R %>% as.character() %>% as.integer(),
+  #                          C50 = C50.predict.R %>% as.character() %>% as.integer(),
+  #                          CART = CART.predict.R %>% as.character() %>% as.integer(),
+  #                          NaiveBayes = NB.predict.R %>% as.character() %>% as.integer(),
+  #                          RandomForest = RF.predict.R %>% as.character() %>% as.integer(),
+  #                          LogisticRegression = GLM.predict.R %>% as.character() %>% as.integer()) %>%
+  #   mutate(票數 = rowSums(.),
+  #            投票法 = ifelse(rowSums(.)>=4, 1, 0) %>% as.factor(),
+  #            實際 = vettel$檢驗不合格)
+  # 
+  # CM <<- confusionMatrix(table(vote.report[, c('投票法', '實際')]), positive = "1")
+  
+  value.predict <<- value.predict
+  
+}
+
+
+
+
+############################################# 
+#################### PRF #################### 
+############################################# 
+### precision, recall, FPR
+PRF <- function (x, y, B) {
+  Table = table(x, y)
+  if (length(Table) == 4) {
+    precision = round(Table[1, 1]/sum(Table[1, ]), 6)
+    recall = round(Table[1, 1]/sum(Table[, 1]), 6)
+    FPR = round(Table[1, 2]/sum(Table[, 2]), 6)
+    Fmeasure = ((1 + B^2) * precision * recall)/(B * 2 * 
+                                                   precision + recall)
+  }
+  else {
+    precision = NA
+    recall = NA
+    Fmeasure = NA
+    FPR = NA
+  }
+  Result = c(precision, recall, FPR, Fmeasure)
+  return(Result)
+}
+
+
+
+
+############################################# 
+#################### GO ##################### 
+############################################# 
+
+
+### 平行運算 ###
+plan(multicore, workers = 6L)
+
+
+h2o.shutdown(prompt = TRUE)
+h2o.no_progress()
+h2o.init(nthreads = -1, #-1表示使用你機器上所有的核
+         max_mem_size = "32G")
+
+
+QQQ1 <- Sys.time()
+
+mode=c('批檢驗結果名稱修', '檢出乙型', '檢出萊劑')
+# mode=c('批檢驗結果名稱修', '檢出乙型')
+Result <- NULL
+PRFscore <- NULL
+
+i=1
+length(mode)
+for (i in 1:3) {
+  
+  
+  # Binning
+  cat(paste0('Binning：', mode[i], '\n'))
+  
+  Sys.time()
+  oldTime <- Sys.time()
+  
+  s_result(checo = i)
+  
+  newTime <- Sys.time()
+  runTime <- round(difftime(newTime, oldTime, units = 'secs'), 4)
+  cat(paste0('----------------共耗時', runTime, '秒'),'\n')
+  
+  
+  
+  
+  # 建模 10 次
+  
+  temp <- NULL
+  for (j in 1:10) {
+    cat(paste0('---------------------------------',  mode[i], '，第 ', j, ' 次---------------------------------\n'))
+    
+    myseed = 2021*j + 3*j^2 + 23*j^3
+    
+    
+    # SMOTE
+    cat(paste0('SMOTE：', mode[i], '\n'))
+    
+    Sys.time()
+    oldTime <- Sys.time()
+    
+    goSMOTE(TrainingData_binning, TestingData_binning)
+    
+    newTime <- Sys.time()
+    runTime <- round(difftime(newTime, oldTime, units = 'secs'), 4)
+    cat(paste0('----------------共耗時', runTime, '秒'),'\n')
+    
+    
+    # Modeling and Predicting
+    sevenModel(TrainingData_SMOTE, TestingData_binningGO)
+    
+    temp <- temp %>% rbind(value.predict)
+    rm(value.predict)
+    
+  }
+  
+  
+  temp$預測機率值 <- temp$預測機率值 %>% as.character() %>% as.numeric()
+  
+  temp.mean <- aggregate(預測機率值 ~ ., data = temp, mean)
+  temp.mean$預測 = ifelse(temp.mean$預測機率值 >= 0.5, 1, 0) 
+  
+  
+  temp.all <- temp.mean %>%
+    select("簽審核准許可文件編號", "報單項次") %>%
+    unique()
+  
+  
+  models = as.character(unique(temp.mean$模型))
+  for (k in models) {
+    temp.model <- temp.mean %>%
+      filter(模型 == k)
+    
+    temp.model$預測 = ifelse(temp.model$預測機率值 >= 0.5, 1, 0) 
+    
+    temp.all <- merge(temp.all, temp.model[, c("簽審核准許可文件編號", "報單項次", "預測")])
+    
+    colnames(temp.all)[which(colnames(temp.all) == '預測')] <- k
+    
+    rm(temp.model)
+  }
+  
+  
+  temp.all <- temp.all %>%
+    mutate(票數 = rowSums(temp.all[models])) %>%
+    mutate(投票法 = ifelse(票數 >= 4, 1, 0) %>% as.factor()) %>%
+    merge(select(TestingData_binningGO, c("簽審核准許可文件編號", "報單項次", "檢驗不合格")), all.x = TRUE) %>%
+    unique()
+    
+  
+  # 轉換factor 成 0, 1
+  temp.all <- temp.all %>% lapply(as.factor) %>% as.data.frame()
+  for (k in c(models, '投票法')) {
+    eval(parse(text=paste0("temp.all$", k, " <- factor(temp.all$", k, 
+                           ", levels = c(0, 1))")
+    ))
+  }
+  
+  
+  for (k in c(models, '投票法')) {
+    CM <- confusionMatrix(table(temp.all[, c(k, '檢驗不合格')]), positive = "1")
+    
+    temp.result <- data.frame(
+      'mode' = mode[i],
+      'model' = k,
+      '抽驗批數' = CM$table %>% sum(),
+      'TP.預測不合格且實際不合格' = CM$table['1', '1'],
+      'FP.預測不合格但實際合格' = CM$table['1', '0'],
+      'FN.預測合格但實際不合格' = CM$table['0', '1'],
+      'TN.預測合格且實際合格' = CM$table['0', '0'],
+      'Balanced.Accuracy' = CM$byClass['Balanced Accuracy'] %>% as.vector(),
+      'Sensitivity' = CM$byClass['Sensitivity'] %>% as.vector(),
+      'Specificity' = CM$byClass['Specificity'] %>% as.vector(),
+      'Pos.Pred.Value' = CM$byClass['Pos Pred Value'] %>% as.vector(),
+      'Neg.Pred.Value' = CM$byClass['Neg Pred Value'] %>% as.vector(),
+      'F1' = CM$byClass['F1'] %>% as.vector()
+    )
+    
+    Result <- Result %>% rbind(temp.result)
+  }
+  
+  rm(temp, temp.result)
+  
+  
+  
+  
+  ### AUC
+  temp.mean <- temp.mean %>%
+    merge(select(TestingData_binningGO, c("簽審核准許可文件編號", "報單項次", "檢驗不合格")), all.x = TRUE) %>%
+    unique()
+  
+  # 不合格、合格 轉成 N、Y
+  temp.mean$檢驗不合格<- ifelse(temp.mean$檢驗不合格 == 1, 'N', 'Y') %>% as.factor()
+  
+  # 篩選可以做的中分類、模型
+  PRFprod <- Result[Result[, c('TP.預測不合格且實際不合格', 'FN.預測合格但實際不合格')] %>% rowSums() > 0, ] %>%
+    filter(mode == mode[i], model != '投票法')
+  
+  # GO
+  m=1
+  for (m in 1:nrow(PRFprod)) {
+    modelF = PRFprod$model[m] %>% as.character()
+    
+    # 擷取各中分類下的每一個模型
+    ModelData <- temp.mean %>% 
+      filter(模型 == modelF) 
+    
+    # 告知
+    print(paste0('AUC   ', mode[i], '  ', which(modelF == PRFprod$model), '/', nrow(PRFprod), '   模型：', modelF))
+    
+    # 切點
+    cut <- t(seq(0, 1, 0.0001)) %>% as.list()
+    p <- 0
+    ypred <- NULL
+    
+    x <- ModelData$預測機率值 ; y <- ModelData$檢驗不合格 ; B <- 1
+    
+    while (p < length(cut)) {
+      ypred <- ypred %>% append(list(x))
+      p <- p + 1
+    }
+    
+    # 依照各個切點，判斷切點下之閾值的NY
+    AA <- future_mapply(function(x, y) { ifelse(x > y, "N", "Y") }, ypred, cut, SIMPLIFY = F)
+    BB <- future_lapply(AA, function(x) { PRF(x, y, B) } ) %>% as.data.frame() %>% t() %>% as.data.frame()
+    
+    row.names(BB) <- NULL
+    colnames(BB) <- c('Precision', 'Recall', 'FPR', 'Fbeta')
+    BB$mode <- mode[i]
+    BB$模型 <- modelF
+    BB$cut <- cut %>% unlist()
+    
+    
+    ### 用套件畫圖、算AUC
+    roc <- roc.curve(scores.class0 = ModelData[which(ModelData$檢驗不合格 == 'N'), '預測機率值'], 
+                     scores.class1 = ModelData[which(ModelData$檢驗不合格 == 'Y'), '預測機率值'])
+    
+    pr <- pr.curve(scores.class0 = ModelData[which(ModelData$檢驗不合格 == 'N'), '預測機率值'], 
+                   scores.class1 = ModelData[which(ModelData$檢驗不合格 == 'Y'), '預測機率值'])
+    
+    
+    # BB$AUC <- auc_roc
+    BB$AUC <- roc$auc
+    BB$AUP <- pr$auc.davis.goadrich
+    
+    ### bind
+    PRFscore <- PRFscore %>% rbind(BB)
+    
+    
+    rm(modelF, ModelData, AA, BB, roc, pr)
+  }
+  
+  
+  
+  
+  
+  rm(TrainingData_binning, TrainingData_SMOTE, TestingData_binning, TestingData_binningGO)
+}
+
+
+# write.csv(Result, 'Result.csv', row.names = FALSE)
+
+
+QQQ1
+Sys.time()
+
+
+
+
+
+# rm(list=setdiff(ls(), c("SqlData", "InputData", "InputData1", "RawData", "PreData", "PreData1", "SqlLines", "nvar_list", "cvar_list")))
+
+
+# 工作表
+wb <- createWorkbook()
+
+# Result
+addWorksheet(wb, '評估指標')
+writeData(wb, '評估指標', Result)
+
+# AUC
+addWorksheet(wb, 'AUC')
+writeData(wb, 'AUC', PRFscore)
+
+
+
+# 寫出
+saveWorkbook(wb, file = dataName, overwrite = TRUE)
